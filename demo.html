@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gh-traffic</title>
+<style>
+:root{
+  --bg:#0c0d0f; --s0:#131415; --s1:#3c3836; --s2:#504945;
+  --bd:#3c3836; --bdhi:#504945;
+  --tx:#ebdbb2; --txhi:#fbf1c7; --txmax:#fbf1c7;
+  --green:#b8bb26; --amber:#fabd2f; --cyan:#83a598; --red:#fb4934; --mut:#928374;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:0; background:var(--bg); color:var(--tx);
+  font-family:"SF Mono","Cascadia Code","Fira Code","JetBrains Mono","IBM Plex Mono","Consolas","Liberation Mono",monospace;
+  font-size:13px; line-height:1.5; letter-spacing:0;
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility;
+}
+/* scanlines */
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:9999;
+  background:repeating-linear-gradient(to bottom,transparent 0,transparent 1px,#000 1px,#000 2px);
+  opacity:0; mix-blend-mode:multiply;
+}
+.wrap{max-width:1040px; margin:0 auto; padding:28px 20px 80px}
+a{color:var(--cyan); text-decoration:none}
+a:hover{text-decoration:underline}
+.muted{color:var(--mut)}
+.tty{border:1px solid var(--bdhi); border-radius:8px; background:var(--s0); margin:0 0 22px; overflow:hidden}
+.tty-head{
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  background:linear-gradient(to bottom,var(--s1),var(--s0)); border-bottom:1px solid var(--bd);
+  font-size:11px; color:var(--mut); letter-spacing:1px;
+}
+.swrow{display:flex; gap:3px; align-items:center}
+.swrow .sw2{width:9px; height:9px; border-radius:2px}
+.themebar{display:flex; gap:10px; align-items:center; margin:0 0 16px; font-size:11px; color:var(--mut)}
+.tty-head .cmd{margin-left:6px}
+.tty-head .cmd b{color:var(--green)}
+.tty-body{padding:18px}
+h1{
+  font-size:24px; font-weight:800; letter-spacing:3px; color:var(--txmax); margin:0 0 2px;
+}
+.sub{font-size:11px; color:var(--mut); letter-spacing:2px}
+.hrow{display:flex; gap:14px; align-items:center}
+.avatar{width:48px; height:48px; border-radius:50%; flex:0 0 auto; border:1px solid var(--bdhi)}
+.ustats{font-size:12px; color:var(--mut); margin:5px 0 2px; font-variant-numeric:tabular-nums}
+.ustats b{color:var(--txhi)}
+.stats{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-top:18px}
+.stat{background:var(--s1); border:1px solid var(--bd); border-left:3px solid var(--green); border-radius:6px; padding:12px 14px}
+.stat .n{font-size:30px; font-weight:800; color:var(--txmax); line-height:1}
+.stat.cl{border-left-color:var(--amber)}
+.stat .l{font-size:9px; letter-spacing:2px; color:var(--mut); margin-top:6px; text-transform:uppercase}
+.section-title{font-size:11px; letter-spacing:2px; color:var(--mut); text-transform:uppercase; margin:26px 0 10px}
+svg{display:block; width:100%; height:auto}
+table{width:100%; border-collapse:collapse; font-size:12px}
+td{padding:7px 8px; border-bottom:1px solid var(--bd)}
+.barcell{position:relative; min-width:90px}
+.cnt{color:var(--txhi); font-weight:700}
+input[type=checkbox]{accent-color:var(--green); width:14px; height:14px; margin:0; vertical-align:middle}
+@media(max-width:760px){.stats{grid-template-columns:repeat(2,1fr)}}
+.refbar{height:5px; border-radius:3px; background:var(--cyan)}
+.pill{display:inline-block; font-size:9px; letter-spacing:1px; padding:1px 6px; border:1px solid var(--bd); border-radius:10px; color:var(--mut)}
+.foot{font-size:10px; color:var(--mut); margin-top:30px; line-height:1.7}
+.skip{font-size:11px; color:var(--red)}
+.lightbanner{font-size:11px; color:var(--amber); border:1px solid var(--bd); border-left:3px solid var(--amber); border-radius:4px; padding:7px 12px; margin:0 0 16px; letter-spacing:.3px}
+.lightbanner b{color:var(--txhi); letter-spacing:1px; text-transform:uppercase}
+#chart{cursor:crosshair}
+[hidden]{display:none !important}
+.tip{position:fixed; z-index:10000; pointer-events:none; display:none; background:var(--s0);
+  border:1px solid var(--green); border-radius:5px; padding:7px 10px; font-size:11px;
+  color:var(--txhi); box-shadow:0 4px 12px rgba(0,0,0,.35); white-space:nowrap; letter-spacing:.3px}
+.tip b{color:var(--txmax)}
+.controls{display:flex; gap:14px; align-items:center; margin:26px 0 10px; font-size:11px; color:var(--mut)}
+.controls label{display:inline-flex; align-items:center; gap:5px; cursor:pointer; user-select:none; letter-spacing:1px}
+.controls .section-title{margin:0}
+.pr-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px}
+.toggle{display:inline-flex; gap:5px; flex-wrap:wrap}
+.toggle a{cursor:pointer; color:var(--mut); padding:2px 10px; border:1px solid var(--bd); border-radius:4px; font-size:10px; letter-spacing:1px; user-select:none}
+.toggle a:hover{color:var(--txhi)}
+.toggle a.on{color:var(--green); border-color:var(--green)}
+.repodd{position:relative; font-size:10px}
+.repodd summary{cursor:pointer; list-style:none; padding:2px 10px; border:1px solid var(--bd); border-radius:4px; color:var(--mut); letter-spacing:1px; user-select:none}
+.repodd summary::-webkit-details-marker{display:none}
+.repodd[open] summary{color:var(--green); border-color:var(--green)}
+.repodd-menu{position:fixed; top:-9999px; left:-9999px; z-index:9000; background:var(--s0); border:1px solid var(--bdhi); border-radius:6px; padding:6px; min-width:210px; max-height:340px; overflow:auto; box-shadow:0 8px 24px rgba(0,0,0,.45); scrollbar-width:thin; scrollbar-color:var(--s2) var(--s0)}
+*::-webkit-scrollbar{width:10px; height:10px}
+*::-webkit-scrollbar-track{background:var(--s0)}
+*::-webkit-scrollbar-thumb{background:var(--s2); border-radius:6px; border:2px solid var(--s0)}
+*::-webkit-scrollbar-thumb:hover{background:var(--bdhi)}
+html{scrollbar-width:thin; scrollbar-color:var(--s2) var(--bg)}
+.repodd-actions{display:flex; gap:4px; margin-bottom:6px}
+.repodd-actions a{cursor:pointer; padding:2px 8px; border:1px solid var(--bd); border-radius:4px; color:var(--mut)}
+.repodd-actions a:hover{color:var(--green); border-color:var(--green)}
+.rdd-item{display:flex; align-items:center; gap:8px; padding:3px 6px; cursor:pointer; border-radius:4px; white-space:nowrap}
+.rdd-item:hover{background:var(--s1)}
+.rdd-item span{flex:1; overflow:hidden; text-overflow:ellipsis}
+.rdd-item b{color:var(--txhi); font-variant-numeric:tabular-nums}
+.legend2{display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; margin-top:10px; font-size:10px; color:var(--tx)}
+.legend2 .sw{display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:middle}
+.legend2 b{color:var(--txhi)}
+.trend{font-weight:700; font-size:11px; font-variant-numeric:tabular-nums; margin-left:4px}
+.trend.up{color:var(--green)} .trend.down{color:var(--red)} .trend.flat{color:var(--mut)}
+.tpair{color:var(--mut)}
+.tl{color:var(--txhi); font-weight:700}
+.tsep{margin:0 5px; color:var(--mut)}
+.insight{margin-top:12px; font-size:11px; color:var(--mut); letter-spacing:.3px; line-height:1.7}
+.insight b{color:var(--txhi)}
+.iseg{white-space:nowrap}
+.legend2>span{white-space:nowrap}
+.grefs table{width:100%}
+.grefs td{padding:6px 8px; border-bottom:1px solid var(--bd)}
+.grefs .muted{color:var(--mut)}
+.repo-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(min(280px,100%),1fr)); grid-auto-rows:1fr; gap:16px; margin-bottom:8px}
+.repo-card{position:relative; min-width:0; display:flex; flex-direction:column; background:var(--s0); border:1px solid var(--bd); border-radius:8px; padding:14px; transition:border-color .12s, opacity .12s}
+.repo-card:hover{border-color:var(--green)}
+.repo-card.off{opacity:.4}
+.repo-card .sel{position:absolute; top:11px; right:11px; z-index:2; accent-color:var(--green); width:15px; height:15px; cursor:pointer; margin:0}
+.chead{display:flex; gap:12px; align-items:center; margin-bottom:14px; padding-right:24px}
+.cthumb{width:92px; height:52px; flex:0 0 auto; object-fit:cover; object-position:top; border-radius:4px; background:var(--bg)}
+.cthumb-np{width:92px; height:52px; flex:0 0 auto; border-radius:4px; display:flex; align-items:center; justify-content:center; background:var(--bg); font-weight:700; font-size:1.4rem; letter-spacing:-1px;
+  background-image:repeating-linear-gradient(0deg, rgba(146,131,116,.06) 0, rgba(146,131,116,.06) 1px, transparent 1px, transparent 4px)}
+.chead-t{min-width:0}
+.chead-t .rtitle{font-size:14px; font-weight:600; color:var(--green); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.chead-t .cstars{font-size:13px; color:var(--amber); margin-top:5px; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.pills .pill{margin-left:6px}
+.cbig{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px}
+.cbig .cl{font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--mut)}
+.cbig .cnum{font-size:23px; font-weight:800; color:var(--txhi); font-variant-numeric:tabular-nums; line-height:1.15; margin-top:2px}
+.crefs{display:flex; flex-direction:column; gap:7px; margin-bottom:12px}
+.rb{display:grid; grid-template-columns:1fr 84px auto; gap:9px; align-items:center; font-size:11px}
+.rbn{color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.rbt{height:4px; border-radius:2px; background:var(--s2); overflow:hidden}
+.rbf{display:block; height:100%; background:var(--green)}
+.rbc{color:var(--txhi); font-variant-numeric:tabular-nums; font-weight:700}
+.crefs .none{color:var(--mut); font-size:11px}
+.csec{font-size:12px; color:var(--mut); border-top:1px solid var(--bd); padding-top:10px; margin-top:auto; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.csec b{color:var(--txhi)}
+.csec .sep{opacity:.45; margin:0 3px}
+.rlink,.csl{color:inherit; text-decoration:none}
+.rlink:hover,.csl:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="themebar">
+    <span>theme</span>
+    <span class="toggle" id="theme-toggle"><a data-t="gruvbox" class="on">gruvbox</a><a data-t="rose-pine">rose pine</a><a data-t="everforest">everforest</a><a data-t="gruvbox-light">gruvbox light</a><a data-t="catppuccin-latte">catppuccin latte</a><a data-t="tokyo-night-light">tokyo night light</a></span>
+  </div>
+  <div id="lightbanner"></div>
+  <div class="tty">
+    <div class="tty-head">
+      <span class="swrow"></span>
+      <span class="cmd">$ <b>gh-traffic</b> --user <span id="who"></span></span>
+    </div>
+    <div class="tty-body">
+      <div class="hrow">
+        <img id="avatar" class="avatar" alt="" hidden>
+        <div>
+          <h1>GH&nbsp;TRAFFIC</h1>
+          <div class="ustats" id="ustats"></div>
+          <div class="sub" id="meta"></div>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="n" id="t-views">0</div><div class="l">Views</div></div>
+        <div class="stat"><div class="n" id="t-vu">0</div><div class="l">Unique visitors</div></div>
+        <div class="stat cl"><div class="n" id="t-clones">0</div><div class="l">Clones</div></div>
+        <div class="stat cl"><div class="n" id="t-cu">0</div><div class="l">Unique cloners</div></div>
+      </div>
+      <div class="insight" id="insight"></div>
+      <div class="pr-head">
+        <span class="toggle"><a id="cm-total" class="on">Total</a><a id="cm-perrepo">Per repo</a></span>
+        <span class="toggle" id="metric-toggle" style="display:none"><a id="pr-views" class="on">views</a><a id="pr-clones">clones</a></span>
+        <details class="repodd" id="repo-dd" style="display:none">
+          <summary>repos <span id="repo-dd-count" class="muted"></span></summary>
+          <div class="repodd-menu">
+            <div class="repodd-actions"><a id="rdd-all">all</a><a id="rdd-none">none</a><a id="rdd-top">top 10</a></div>
+            <div id="repo-dd-list"></div>
+          </div>
+        </details>
+      </div>
+      <svg id="chart" viewBox="0 0 960 220" preserveAspectRatio="none"></svg>
+      <div class="legend2" id="chart-legend"></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <span class="section-title" style="margin:0">Repositories</span>
+    <label><input type="checkbox" id="nofork"> exclude forks</label>
+    <span class="muted">· sort</span>
+    <span class="toggle" id="sort-toggle"><a data-s="views" class="on">views</a><a data-s="clones">clones</a><a data-s="stars">stars</a><a data-s="updated">updated</a><a data-s="name">name</a></span>
+  </div>
+  <div id="grid" class="repo-grid"></div>
+  <div id="skip"></div>
+
+  <div class="tty" style="margin-top:26px">
+    <div class="tty-head">
+      <span class="swrow"></span>
+      <span class="cmd">$ <b>gh-traffic</b> --referrers</span>
+    </div>
+    <div class="tty-body">
+      <div class="section-title" style="margin:0 0 8px">Top referring sites — all selected repos (14-day)</div>
+      <div class="grefs" id="grefs"></div>
+    </div>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+<div id="tip" class="tip"></div>
+
+<script>
+const DATA = {"user":"demo-user","avatar":"data:image/webp;base64,UklGRuICAABXRUJQVlA4INYCAAAQDwCdASpgAGAAPm02mEikIyKhIrqpcIANiWMGcC8AfytvOG4Btyw8bCEBhVXoZ3gD0AOk+/ctx/poN8PyCHOz9H6hL+wAwA5OcFjEqw1YXeMxyrPzVxOH5kiafgQq6blmT9Toa0bZC/45UzM4dr/mY+7ShmOvbevtVqnC/RffogAA/vMzNU3i//njn/1X/4W/Uv6d597acxgbWiQG97X5MNLvK4+Zh2jz4BmcsMo1eWtUm1PxpsgXvpkMTP4a4c+3unf+k2Pdn5t+csXRz8wuz8ancrcZYBgc/kmsDWW5k3ZHkMjDrarxo5aPkQi0L3OpC+xNGKR38F5VL32Y6WVbdj/QGjkovrWj3Qnk0ZadyoALqF4FjB7mLRp7vK3kzzvzVQrzed6Ca6dQRSSBD9TweYM5SCtcWmNHw6TpVZh8r3d1IO1odIP0Njb26rkF2W8KXry2fwLikc1F5kvL7o4S26Hdp2e3nXKtZVu2NmxRWR9/FpMrUpb7j9+9gM0clE+FfHXn3JAl1w4Us2YcyB+6D7f2rF9qP5PnGY/MIVmtwdCZzpvnJP74hsz+jKL/4l3tkt0u9+1/zGwnzCz/50TdtRQiHv89msF6XMmrHyFhRoFo89l15ne9rrppZJfAJo6qFujUxoIw7DqOTzTdrSivyeoOV1cYVHX3ARPuN439Zl5WY5Ke1hx1qs7GtlEsfpj63a2irq/meJxMY0CjspajGEgguP4S5ir9LZ7yybj4xtsVKP/LIzctzpMPM6Q0V1yMTbfHyi9Rn5pJ2Q/PbrjrgeTCnP9DBJXvF6SiAjvqxnnQY7OwTAzuDAedJxxMMMWxz3DG7jXxQOfS/Q9imIsAm3r/KZtOA9L6MFeaSp8frYyMgVqZvunWlf3QwkkXgdWpnRj7dvMHbYBbK8VC8nZ2M2eHpGBP6RWxhp6LBhzCCuG7yP+nLtt/WZeVmOSnk2pmWTBwAAA=","followers":342,"authored_issues":7,"authored_prs":3,"light":false,"window_days":14,"history_enabled":true,"skipped":[],"repos":[{"name":"aurora-bar","private":false,"fork":false,"stars":412,"open_issues_total":7,"open_prs":2,"pushed_at":"2026-06-27T14:59:47Z","watchers":38,"thumb":"data:image/webp;base64,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","views":{"count":1830,"uniques":1220,"daily":[{"date":"2026-06-13","count":80,"uniques":53},{"date":"2026-06-14","count":53,"uniques":35},{"date":"2026-06-15","count":53,"uniques":35},{"date":"2026-06-16","count":75,"uniques":50},{"date":"2026-06-17","count":79,"uniques":52},{"date":"2026-06-18","count":84,"uniques":56},{"date":"2026-06-19","count":84,"uniques":56},{"date":"2026-06-20","count":88,"uniques":58},{"date":"2026-06-21","count":122,"uniques":81},{"date":"2026-06-22","count":99,"uniques":66},{"date":"2026-06-23","count":137,"uniques":91},{"date":"2026-06-24","count":133,"uniques":88},{"date":"2026-06-25","count":114,"uniques":76},{"date":"2026-06-26","count":357,"uniques":238},{"date":"2026-06-27","count":129,"uniques":86},{"date":"2026-06-28","count":143,"uniques":95}],"history":[{"date":"2026-06-13","count":80,"uniques":53},{"date":"2026-06-14","count":53,"uniques":35},{"date":"2026-06-15","count":53,"uniques":35},{"date":"2026-06-16","count":75,"uniques":50},{"date":"2026-06-17","count":79,"uniques":52},{"date":"2026-06-18","count":84,"uniques":56},{"date":"2026-06-19","count":84,"uniques":56},{"date":"2026-06-20","count":88,"uniques":58},{"date":"2026-06-21","count":122,"uniques":81},{"date":"2026-06-22","count":99,"uniques":66},{"date":"2026-06-23","count":137,"uniques":91},{"date":"2026-06-24","count":133,"uniques":88},{"date":"2026-06-25","count":114,"uniques":76},{"date":"2026-06-26","count":357,"uniques":238},{"date":"2026-06-27","count":129,"uniques":86},{"date":"2026-06-28","count":143,"uniques":95}]},"clones":{"count":229,"uniques":152,"daily":[{"date":"2026-06-13","count":13,"uniques":8},{"date":"2026-06-14","count":18,"uniques":12},{"date":"2026-06-15","count":10,"uniques":6},{"date":"2026-06-16","count":18,"uniques":12},{"date":"2026-06-17","count":13,"uniques":8},{"date":"2026-06-18","count":18,"uniques":12},{"date":"2026-06-19","count":16,"uniques":10},{"date":"2026-06-20","count":13,"uniques":8},{"date":"2026-06-21","count":17,"uniques":11},{"date":"2026-06-22","count":14,"uniques":9},{"date":"2026-06-23","count":10,"uniques":6},{"date":"2026-06-24","count":12,"uniques":8},{"date":"2026-06-25","count":16,"uniques":10},{"date":"2026-06-26","count":15,"uniques":10},{"date":"2026-06-27","count":14,"uniques":9},{"date":"2026-06-28","count":12,"uniques":8}],"history":[{"date":"2026-06-13","count":13,"uniques":8},{"date":"2026-06-14","count":18,"uniques":12},{"date":"2026-06-15","count":10,"uniques":6},{"date":"2026-06-16","count":18,"uniques":12},{"date":"2026-06-17","count":13,"uniques":8},{"date":"2026-06-18","count":18,"uniques":12},{"date":"2026-06-19","count":16,"uniques":10},{"date":"2026-06-20","count":13,"uniques":8},{"date":"2026-06-21","count":17,"uniques":11},{"date":"2026-06-22","count":14,"uniques":9},{"date":"2026-06-23","count":10,"uniques":6},{"date":"2026-06-24","count":12,"uniques":8},{"date":"2026-06-25","count":16,"uniques":10},{"date":"2026-06-26","count":15,"uniques":10},{"date":"2026-06-27","count":14,"uniques":9},{"date":"2026-06-28","count":12,"uniques":8}]},"referrers":[{"referrer":"github.com","count":820,"uniques":546},{"referrer":"www.google.com","count":240,"uniques":160},{"referrer":"news.ycombinator.com","count":190,"uniques":126},{"referrer":"reddit.com","count":95,"uniques":63}]},{"name":"nova-theme","private":false,"fork":false,"stars":268,"open_issues_total":4,"open_prs":1,"pushed_at":"2026-06-26T14:59:47Z","watchers":21,"thumb":"data:image/webp;base64,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","views":{"count":1101,"uniques":734,"daily":[{"date":"2026-06-13","count":33,"uniques":22},{"date":"2026-06-14","count":55,"uniques":36},{"date":"2026-06-15","count":45,"uniques":30},{"date":"2026-06-16","count":42,"uniques":28},{"date":"2026-06-17","count":45,"uniques":30},{"date":"2026-06-18","count":59,"uniques":39},{"date":"2026-06-19","count":54,"uniques":36},{"date":"2026-06-20","count":66,"uniques":44},{"date":"2026-06-21","count":70,"uniques":46},{"date":"2026-06-22","count":82,"uniques":54},{"date":"2026-06-23","count":75,"uniques":50},{"date":"2026-06-24","count":96,"uniques":64},{"date":"2026-06-25","count":76,"uniques":50},{"date":"2026-06-26","count":102,"uniques":68},{"date":"2026-06-27","count":97,"uniques":64},{"date":"2026-06-28","count":104,"uniques":69}],"history":[{"date":"2026-06-13","count":33,"uniques":22},{"date":"2026-06-14","count":55,"uniques":36},{"date":"2026-06-15","count":45,"uniques":30},{"date":"2026-06-16","count":42,"uniques":28},{"date":"2026-06-17","count":45,"uniques":30},{"date":"2026-06-18","count":59,"uniques":39},{"date":"2026-06-19","count":54,"uniques":36},{"date":"2026-06-20","count":66,"uniques":44},{"date":"2026-06-21","count":70,"uniques":46},{"date":"2026-06-22","count":82,"uniques":54},{"date":"2026-06-23","count":75,"uniques":50},{"date":"2026-06-24","count":96,"uniques":64},{"date":"2026-06-25","count":76,"uniques":50},{"date":"2026-06-26","count":102,"uniques":68},{"date":"2026-06-27","count":97,"uniques":64},{"date":"2026-06-28","count":104,"uniques":69}]},"clones":{"count":143,"uniques":95,"daily":[{"date":"2026-06-13","count":6,"uniques":4},{"date":"2026-06-14","count":9,"uniques":6},{"date":"2026-06-15","count":6,"uniques":4},{"date":"2026-06-16","count":10,"uniques":6},{"date":"2026-06-17","count":8,"uniques":5},{"date":"2026-06-18","count":12,"uniques":8},{"date":"2026-06-19","count":11,"uniques":7},{"date":"2026-06-20","count":10,"uniques":6},{"date":"2026-06-21","count":12,"uniques":8},{"date":"2026-06-22","count":8,"uniques":5},{"date":"2026-06-23","count":10,"uniques":6},{"date":"2026-06-24","count":7,"uniques":4},{"date":"2026-06-25","count":11,"uniques":7},{"date":"2026-06-26","count":6,"uniques":4},{"date":"2026-06-27","count":6,"uniques":4},{"date":"2026-06-28","count":11,"uniques":7}],"history":[{"date":"2026-06-13","count":6,"uniques":4},{"date":"2026-06-14","count":9,"uniques":6},{"date":"2026-06-15","count":6,"uniques":4},{"date":"2026-06-16","count":10,"uniques":6},{"date":"2026-06-17","count":8,"uniques":5},{"date":"2026-06-18","count":12,"uniques":8},{"date":"2026-06-19","count":11,"uniques":7},{"date":"2026-06-20","count":10,"uniques":6},{"date":"2026-06-21","count":12,"uniques":8},{"date":"2026-06-22","count":8,"uniques":5},{"date":"2026-06-23","count":10,"uniques":6},{"date":"2026-06-24","count":7,"uniques":4},{"date":"2026-06-25","count":11,"uniques":7},{"date":"2026-06-26","count":6,"uniques":4},{"date":"2026-06-27","count":6,"uniques":4},{"date":"2026-06-28","count":11,"uniques":7}]},"referrers":[{"referrer":"github.com","count":510,"uniques":340},{"referrer":"duckduckgo.com","count":88,"uniques":58},{"referrer":"reddit.com","count":64,"uniques":42}]},{"name":"pixel-forge","private":false,"fork":false,"stars":153,"open_issues_total":8,"open_prs":0,"pushed_at":"2026-06-22T14:59:47Z","watchers":14,"thumb":"data:image/webp;base64,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","views":{"count":198,"uniques":132,"daily":[{"date":"2026-06-13","count":26,"uniques":17},{"date":"2026-06-14","count":26,"uniques":17},{"date":"2026-06-15","count":17,"uniques":11},{"date":"2026-06-16","count":20,"uniques":13},{"date":"2026-06-17","count":14,"uniques":9},{"date":"2026-06-18","count":21,"uniques":14},{"date":"2026-06-19","count":15,"uniques":10},{"date":"2026-06-20","count":19,"uniques":12},{"date":"2026-06-21","count":14,"uniques":9},{"date":"2026-06-22","count":6,"uniques":4},{"date":"2026-06-23","count":10,"uniques":6},{"date":"2026-06-24","count":8,"uniques":5},{"date":"2026-06-25","count":1,"uniques":1},{"date":"2026-06-26","count":1,"uniques":1},{"date":"2026-06-27","count":0,"uniques":1},{"date":"2026-06-28","count":0,"uniques":1}],"history":[{"date":"2026-06-13","count":26,"uniques":17},{"date":"2026-06-14","count":26,"uniques":17},{"date":"2026-06-15","count":17,"uniques":11},{"date":"2026-06-16","count":20,"uniques":13},{"date":"2026-06-17","count":14,"uniques":9},{"date":"2026-06-18","count":21,"uniques":14},{"date":"2026-06-19","count":15,"uniques":10},{"date":"2026-06-20","count":19,"uniques":12},{"date":"2026-06-21","count":14,"uniques":9},{"date":"2026-06-22","count":6,"uniques":4},{"date":"2026-06-23","count":10,"uniques":6},{"date":"2026-06-24","count":8,"uniques":5},{"date":"2026-06-25","count":1,"uniques":1},{"date":"2026-06-26","count":1,"uniques":1},{"date":"2026-06-27","count":0,"uniques":1},{"date":"2026-06-28","count":0,"uniques":1}]},"clones":{"count":109,"uniques":72,"daily":[{"date":"2026-06-13","count":9,"uniques":6},{"date":"2026-06-14","count":6,"uniques":4},{"date":"2026-06-15","count":6,"uniques":4},{"date":"2026-06-16","count":8,"uniques":5},{"date":"2026-06-17","count":8,"uniques":5},{"date":"2026-06-18","count":7,"uniques":4},{"date":"2026-06-19","count":9,"uniques":6},{"date":"2026-06-20","count":6,"uniques":4},{"date":"2026-06-21","count":7,"uniques":4},{"date":"2026-06-22","count":5,"uniques":3},{"date":"2026-06-23","count":6,"uniques":4},{"date":"2026-06-24","count":5,"uniques":3},{"date":"2026-06-25","count":7,"uniques":4},{"date":"2026-06-26","count":8,"uniques":5},{"date":"2026-06-27","count":7,"uniques":4},{"date":"2026-06-28","count":5,"uniques":3}],"history":[{"date":"2026-06-13","count":9,"uniques":6},{"date":"2026-06-14","count":6,"uniques":4},{"date":"2026-06-15","count":6,"uniques":4},{"date":"2026-06-16","count":8,"uniques":5},{"date":"2026-06-17","count":8,"uniques":5},{"date":"2026-06-18","count":7,"uniques":4},{"date":"2026-06-19","count":9,"uniques":6},{"date":"2026-06-20","count":6,"uniques":4},{"date":"2026-06-21","count":7,"uniques":4},{"date":"2026-06-22","count":5,"uniques":3},{"date":"2026-06-23","count":6,"uniques":4},{"date":"2026-06-24","count":5,"uniques":3},{"date":"2026-06-25","count":7,"uniques":4},{"date":"2026-06-26","count":8,"uniques":5},{"date":"2026-06-27","count":7,"uniques":4},{"date":"2026-06-28","count":5,"uniques":3}]},"referrers":[{"referrer":"github.com","count":300,"uniques":200},{"referrer":"www.google.com","count":60,"uniques":40}]},{"name":"quartz-ui","private":false,"fork":false,"stars":96,"open_issues_total":5,"open_prs":3,"pushed_at":"2026-06-28T14:59:47Z","watchers":11,"thumb":"data:image/webp;base64,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","views":{"count":733,"uniques":488,"daily":[{"date":"2026-06-13","count":18,"uniques":12},{"date":"2026-06-14","count":32,"uniques":21},{"date":"2026-06-15","count":30,"uniques":20},{"date":"2026-06-16","count":38,"uniques":25},{"date":"2026-06-17","count":38,"uniques":25},{"date":"2026-06-18","count":35,"uniques":23},{"date":"2026-06-19","count":36,"uniques":24},{"date":"2026-06-20","count":46,"uniques":30},{"date":"2026-06-21","count":46,"uniques":30},{"date":"2026-06-22","count":48,"uniques":32},{"date":"2026-06-23","count":59,"uniques":39},{"date":"2026-06-24","count":62,"uniques":41},{"date":"2026-06-25","count":61,"uniques":40},{"date":"2026-06-26","count":61,"uniques":40},{"date":"2026-06-27","count":59,"uniques":39},{"date":"2026-06-28","count":64,"uniques":42}],"history":[{"date":"2026-06-13","count":18,"uniques":12},{"date":"2026-06-14","count":32,"uniques":21},{"date":"2026-06-15","count":30,"uniques":20},{"date":"2026-06-16","count":38,"uniques":25},{"date":"2026-06-17","count":38,"uniques":25},{"date":"2026-06-18","count":35,"uniques":23},{"date":"2026-06-19","count":36,"uniques":24},{"date":"2026-06-20","count":46,"uniques":30},{"date":"2026-06-21","count":46,"uniques":30},{"date":"2026-06-22","count":48,"uniques":32},{"date":"2026-06-23","count":59,"uniques":39},{"date":"2026-06-24","count":62,"uniques":41},{"date":"2026-06-25","count":61,"uniques":40},{"date":"2026-06-26","count":61,"uniques":40},{"date":"2026-06-27","count":59,"uniques":39},{"date":"2026-06-28","count":64,"uniques":42}]},"clones":{"count":83,"uniques":55,"daily":[{"date":"2026-06-13","count":4,"uniques":2},{"date":"2026-06-14","count":4,"uniques":2},{"date":"2026-06-15","count":6,"uniques":4},{"date":"2026-06-16","count":6,"uniques":4},{"date":"2026-06-17","count":6,"uniques":4},{"date":"2026-06-18","count":5,"uniques":3},{"date":"2026-06-19","count":6,"uniques":4},{"date":"2026-06-20","count":6,"uniques":4},{"date":"2026-06-21","count":5,"uniques":3},{"date":"2026-06-22","count":6,"uniques":4},{"date":"2026-06-23","count":5,"uniques":3},{"date":"2026-06-24","count":5,"uniques":3},{"date":"2026-06-25","count":4,"uniques":2},{"date":"2026-06-26","count":4,"uniques":2},{"date":"2026-06-27","count":6,"uniques":4},{"date":"2026-06-28","count":5,"uniques":3}],"history":[{"date":"2026-06-13","count":4,"uniques":2},{"date":"2026-06-14","count":4,"uniques":2},{"date":"2026-06-15","count":6,"uniques":4},{"date":"2026-06-16","count":6,"uniques":4},{"date":"2026-06-17","count":6,"uniques":4},{"date":"2026-06-18","count":5,"uniques":3},{"date":"2026-06-19","count":6,"uniques":4},{"date":"2026-06-20","count":6,"uniques":4},{"date":"2026-06-21","count":5,"uniques":3},{"date":"2026-06-22","count":6,"uniques":4},{"date":"2026-06-23","count":5,"uniques":3},{"date":"2026-06-24","count":5,"uniques":3},{"date":"2026-06-25","count":4,"uniques":2},{"date":"2026-06-26","count":4,"uniques":2},{"date":"2026-06-27","count":6,"uniques":4},{"date":"2026-06-28","count":5,"uniques":3}]},"referrers":[{"referrer":"github.com","count":210,"uniques":140},{"referrer":"t.co","count":44,"uniques":29},{"referrer":"bing.com","count":19,"uniques":12}]},{"name":"stellar-cli","private":false,"fork":false,"stars":740,"open_issues_total":16,"open_prs":4,"pushed_at":"2026-06-25T14:59:47Z","watchers":64,"thumb":"data:image/webp;base64,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","views":{"count":2939,"uniques":1959,"daily":[{"date":"2026-06-13","count":69,"uniques":46},{"date":"2026-06-14","count":121,"uniques":80},{"date":"2026-06-15","count":85,"uniques":56},{"date":"2026-06-16","count":146,"uniques":97},{"date":"2026-06-17","count":107,"uniques":71},{"date":"2026-06-18","count":118,"uniques":78},{"date":"2026-06-19","count":158,"uniques":105},{"date":"2026-06-20","count":137,"uniques":91},{"date":"2026-06-21","count":186,"uniques":124},{"date":"2026-06-22","count":188,"uniques":125},{"date":"2026-06-23","count":181,"uniques":120},{"date":"2026-06-24","count":201,"uniques":134},{"date":"2026-06-25","count":176,"uniques":117},{"date":"2026-06-26","count":615,"uniques":410},{"date":"2026-06-27","count":214,"uniques":142},{"date":"2026-06-28","count":237,"uniques":158}],"history":[{"date":"2026-06-13","count":69,"uniques":46},{"date":"2026-06-14","count":121,"uniques":80},{"date":"2026-06-15","count":85,"uniques":56},{"date":"2026-06-16","count":146,"uniques":97},{"date":"2026-06-17","count":107,"uniques":71},{"date":"2026-06-18","count":118,"uniques":78},{"date":"2026-06-19","count":158,"uniques":105},{"date":"2026-06-20","count":137,"uniques":91},{"date":"2026-06-21","count":186,"uniques":124},{"date":"2026-06-22","count":188,"uniques":125},{"date":"2026-06-23","count":181,"uniques":120},{"date":"2026-06-24","count":201,"uniques":134},{"date":"2026-06-25","count":176,"uniques":117},{"date":"2026-06-26","count":615,"uniques":410},{"date":"2026-06-27","count":214,"uniques":142},{"date":"2026-06-28","count":237,"uniques":158}]},"clones":{"count":335,"uniques":223,"daily":[{"date":"2026-06-13","count":21,"uniques":14},{"date":"2026-06-14","count":22,"uniques":14},{"date":"2026-06-15","count":18,"uniques":12},{"date":"2026-06-16","count":22,"uniques":14},{"date":"2026-06-17","count":14,"uniques":9},{"date":"2026-06-18","count":24,"uniques":16},{"date":"2026-06-19","count":25,"uniques":16},{"date":"2026-06-20","count":15,"uniques":10},{"date":"2026-06-21","count":24,"uniques":16},{"date":"2026-06-22","count":22,"uniques":14},{"date":"2026-06-23","count":26,"uniques":17},{"date":"2026-06-24","count":18,"uniques":12},{"date":"2026-06-25","count":26,"uniques":17},{"date":"2026-06-26","count":24,"uniques":16},{"date":"2026-06-27","count":19,"uniques":12},{"date":"2026-06-28","count":15,"uniques":10}],"history":[{"date":"2026-06-13","count":21,"uniques":14},{"date":"2026-06-14","count":22,"uniques":14},{"date":"2026-06-15","count":18,"uniques":12},{"date":"2026-06-16","count":22,"uniques":14},{"date":"2026-06-17","count":14,"uniques":9},{"date":"2026-06-18","count":24,"uniques":16},{"date":"2026-06-19","count":25,"uniques":16},{"date":"2026-06-20","count":15,"uniques":10},{"date":"2026-06-21","count":24,"uniques":16},{"date":"2026-06-22","count":22,"uniques":14},{"date":"2026-06-23","count":26,"uniques":17},{"date":"2026-06-24","count":18,"uniques":12},{"date":"2026-06-25","count":26,"uniques":17},{"date":"2026-06-26","count":24,"uniques":16},{"date":"2026-06-27","count":19,"uniques":12},{"date":"2026-06-28","count":15,"uniques":10}]},"referrers":[{"referrer":"github.com","count":1500,"uniques":1000},{"referrer":"news.ycombinator.com","count":420,"uniques":280},{"referrer":"www.google.com","count":380,"uniques":253},{"referrer":"reddit.com","count":160,"uniques":106}]},{"name":"lumen-dots","private":false,"fork":false,"stars":58,"open_issues_total":1,"open_prs":0,"pushed_at":"2026-06-17T14:59:47Z","watchers":6,"thumb":"data:image/webp;base64,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","views":{"count":366,"uniques":244,"daily":[{"date":"2026-06-13","count":14,"uniques":9},{"date":"2026-06-14","count":17,"uniques":11},{"date":"2026-06-15","count":14,"uniques":9},{"date":"2026-06-16","count":20,"uniques":13},{"date":"2026-06-17","count":14,"uniques":9},{"date":"2026-06-18","count":19,"uniques":12},{"date":"2026-06-19","count":24,"uniques":16},{"date":"2026-06-20","count":19,"uniques":12},{"date":"2026-06-21","count":26,"uniques":17},{"date":"2026-06-22","count":20,"uniques":13},{"date":"2026-06-23","count":30,"uniques":20},{"date":"2026-06-24","count":25,"uniques":16},{"date":"2026-06-25","count":32,"uniques":21},{"date":"2026-06-26","count":31,"uniques":20},{"date":"2026-06-27","count":33,"uniques":22},{"date":"2026-06-28","count":28,"uniques":18}],"history":[{"date":"2026-06-13","count":14,"uniques":9},{"date":"2026-06-14","count":17,"uniques":11},{"date":"2026-06-15","count":14,"uniques":9},{"date":"2026-06-16","count":20,"uniques":13},{"date":"2026-06-17","count":14,"uniques":9},{"date":"2026-06-18","count":19,"uniques":12},{"date":"2026-06-19","count":24,"uniques":16},{"date":"2026-06-20","count":19,"uniques":12},{"date":"2026-06-21","count":26,"uniques":17},{"date":"2026-06-22","count":20,"uniques":13},{"date":"2026-06-23","count":30,"uniques":20},{"date":"2026-06-24","count":25,"uniques":16},{"date":"2026-06-25","count":32,"uniques":21},{"date":"2026-06-26","count":31,"uniques":20},{"date":"2026-06-27","count":33,"uniques":22},{"date":"2026-06-28","count":28,"uniques":18}]},"clones":{"count":59,"uniques":39,"daily":[{"date":"2026-06-13","count":3,"uniques":2},{"date":"2026-06-14","count":4,"uniques":2},{"date":"2026-06-15","count":3,"uniques":2},{"date":"2026-06-16","count":5,"uniques":3},{"date":"2026-06-17","count":5,"uniques":3},{"date":"2026-06-18","count":3,"uniques":2},{"date":"2026-06-19","count":5,"uniques":3},{"date":"2026-06-20","count":4,"uniques":2},{"date":"2026-06-21","count":4,"uniques":2},{"date":"2026-06-22","count":3,"uniques":2},{"date":"2026-06-23","count":3,"uniques":2},{"date":"2026-06-24","count":4,"uniques":2},{"date":"2026-06-25","count":4,"uniques":2},{"date":"2026-06-26","count":3,"uniques":2},{"date":"2026-06-27","count":3,"uniques":2},{"date":"2026-06-28","count":3,"uniques":2}],"history":[{"date":"2026-06-13","count":3,"uniques":2},{"date":"2026-06-14","count":4,"uniques":2},{"date":"2026-06-15","count":3,"uniques":2},{"date":"2026-06-16","count":5,"uniques":3},{"date":"2026-06-17","count":5,"uniques":3},{"date":"2026-06-18","count":3,"uniques":2},{"date":"2026-06-19","count":5,"uniques":3},{"date":"2026-06-20","count":4,"uniques":2},{"date":"2026-06-21","count":4,"uniques":2},{"date":"2026-06-22","count":3,"uniques":2},{"date":"2026-06-23","count":3,"uniques":2},{"date":"2026-06-24","count":4,"uniques":2},{"date":"2026-06-25","count":4,"uniques":2},{"date":"2026-06-26","count":3,"uniques":2},{"date":"2026-06-27","count":3,"uniques":2},{"date":"2026-06-28","count":3,"uniques":2}]},"referrers":[{"referrer":"github.com","count":130,"uniques":86}]},{"name":"cobalt-shell","private":false,"fork":false,"stars":204,"open_issues_total":6,"open_prs":2,"pushed_at":"2026-06-24T14:59:47Z","watchers":18,"thumb":"data:image/webp;base64,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","views":{"count":218,"uniques":145,"daily":[{"date":"2026-06-13","count":42,"uniques":28},{"date":"2026-06-14","count":23,"uniques":15},{"date":"2026-06-15","count":20,"uniques":13},{"date":"2026-06-16","count":30,"uniques":20},{"date":"2026-06-17","count":14,"uniques":9},{"date":"2026-06-18","count":26,"uniques":17},{"date":"2026-06-19","count":10,"uniques":6},{"date":"2026-06-20","count":7,"uniques":4},{"date":"2026-06-21","count":21,"uniques":14},{"date":"2026-06-22","count":12,"uniques":8},{"date":"2026-06-23","count":11,"uniques":7},{"date":"2026-06-24","count":0,"uniques":1},{"date":"2026-06-25","count":0,"uniques":1},{"date":"2026-06-26","count":1,"uniques":1},{"date":"2026-06-27","count":1,"uniques":1},{"date":"2026-06-28","count":0,"uniques":1}],"history":[{"date":"2026-06-13","count":42,"uniques":28},{"date":"2026-06-14","count":23,"uniques":15},{"date":"2026-06-15","count":20,"uniques":13},{"date":"2026-06-16","count":30,"uniques":20},{"date":"2026-06-17","count":14,"uniques":9},{"date":"2026-06-18","count":26,"uniques":17},{"date":"2026-06-19","count":10,"uniques":6},{"date":"2026-06-20","count":7,"uniques":4},{"date":"2026-06-21","count":21,"uniques":14},{"date":"2026-06-22","count":12,"uniques":8},{"date":"2026-06-23","count":11,"uniques":7},{"date":"2026-06-24","count":0,"uniques":1},{"date":"2026-06-25","count":0,"uniques":1},{"date":"2026-06-26","count":1,"uniques":1},{"date":"2026-06-27","count":1,"uniques":1},{"date":"2026-06-28","count":0,"uniques":1}]},"clones":{"count":127,"uniques":84,"daily":[{"date":"2026-06-13","count":7,"uniques":4},{"date":"2026-06-14","count":10,"uniques":6},{"date":"2026-06-15","count":7,"uniques":4},{"date":"2026-06-16","count":8,"uniques":5},{"date":"2026-06-17","count":9,"uniques":6},{"date":"2026-06-18","count":8,"uniques":5},{"date":"2026-06-19","count":9,"uniques":6},{"date":"2026-06-20","count":10,"uniques":6},{"date":"2026-06-21","count":9,"uniques":6},{"date":"2026-06-22","count":6,"uniques":4},{"date":"2026-06-23","count":7,"uniques":4},{"date":"2026-06-24","count":7,"uniques":4},{"date":"2026-06-25","count":6,"uniques":4},{"date":"2026-06-26","count":8,"uniques":5},{"date":"2026-06-27","count":6,"uniques":4},{"date":"2026-06-28","count":10,"uniques":6}],"history":[{"date":"2026-06-13","count":7,"uniques":4},{"date":"2026-06-14","count":10,"uniques":6},{"date":"2026-06-15","count":7,"uniques":4},{"date":"2026-06-16","count":8,"uniques":5},{"date":"2026-06-17","count":9,"uniques":6},{"date":"2026-06-18","count":8,"uniques":5},{"date":"2026-06-19","count":9,"uniques":6},{"date":"2026-06-20","count":10,"uniques":6},{"date":"2026-06-21","count":9,"uniques":6},{"date":"2026-06-22","count":6,"uniques":4},{"date":"2026-06-23","count":7,"uniques":4},{"date":"2026-06-24","count":7,"uniques":4},{"date":"2026-06-25","count":6,"uniques":4},{"date":"2026-06-26","count":8,"uniques":5},{"date":"2026-06-27","count":6,"uniques":4},{"date":"2026-06-28","count":10,"uniques":6}]},"referrers":[{"referrer":"github.com","count":360,"uniques":240},{"referrer":"reddit.com","count":70,"uniques":46},{"referrer":"duckduckgo.com","count":33,"uniques":22}]},{"name":"ember-icons","private":false,"fork":false,"stars":121,"open_issues_total":1,"open_prs":1,"pushed_at":"2026-06-20T14:59:47Z","watchers":9,"thumb":"data:image/webp;base64,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","views":{"count":514,"uniques":342,"daily":[{"date":"2026-06-13","count":21,"uniques":14},{"date":"2026-06-14","count":18,"uniques":12},{"date":"2026-06-15","count":26,"uniques":17},{"date":"2026-06-16","count":22,"uniques":14},{"date":"2026-06-17","count":21,"uniques":14},{"date":"2026-06-18","count":24,"uniques":16},{"date":"2026-06-19","count":36,"uniques":24},{"date":"2026-06-20","count":37,"uniques":24},{"date":"2026-06-21","count":29,"uniques":19},{"date":"2026-06-22","count":34,"uniques":22},{"date":"2026-06-23","count":34,"uniques":22},{"date":"2026-06-24","count":35,"uniques":23},{"date":"2026-06-25","count":42,"uniques":28},{"date":"2026-06-26","count":40,"uniques":26},{"date":"2026-06-27","count":49,"uniques":32},{"date":"2026-06-28","count":46,"uniques":30}],"history":[{"date":"2026-06-13","count":21,"uniques":14},{"date":"2026-06-14","count":18,"uniques":12},{"date":"2026-06-15","count":26,"uniques":17},{"date":"2026-06-16","count":22,"uniques":14},{"date":"2026-06-17","count":21,"uniques":14},{"date":"2026-06-18","count":24,"uniques":16},{"date":"2026-06-19","count":36,"uniques":24},{"date":"2026-06-20","count":37,"uniques":24},{"date":"2026-06-21","count":29,"uniques":19},{"date":"2026-06-22","count":34,"uniques":22},{"date":"2026-06-23","count":34,"uniques":22},{"date":"2026-06-24","count":35,"uniques":23},{"date":"2026-06-25","count":42,"uniques":28},{"date":"2026-06-26","count":40,"uniques":26},{"date":"2026-06-27","count":49,"uniques":32},{"date":"2026-06-28","count":46,"uniques":30}]},"clones":{"count":99,"uniques":66,"daily":[{"date":"2026-06-13","count":6,"uniques":4},{"date":"2026-06-14","count":7,"uniques":4},{"date":"2026-06-15","count":5,"uniques":3},{"date":"2026-06-16","count":8,"uniques":5},{"date":"2026-06-17","count":5,"uniques":3},{"date":"2026-06-18","count":8,"uniques":5},{"date":"2026-06-19","count":8,"uniques":5},{"date":"2026-06-20","count":7,"uniques":4},{"date":"2026-06-21","count":5,"uniques":3},{"date":"2026-06-22","count":7,"uniques":4},{"date":"2026-06-23","count":7,"uniques":4},{"date":"2026-06-24","count":5,"uniques":3},{"date":"2026-06-25","count":4,"uniques":2},{"date":"2026-06-26","count":4,"uniques":2},{"date":"2026-06-27","count":7,"uniques":4},{"date":"2026-06-28","count":6,"uniques":4}],"history":[{"date":"2026-06-13","count":6,"uniques":4},{"date":"2026-06-14","count":7,"uniques":4},{"date":"2026-06-15","count":5,"uniques":3},{"date":"2026-06-16","count":8,"uniques":5},{"date":"2026-06-17","count":5,"uniques":3},{"date":"2026-06-18","count":8,"uniques":5},{"date":"2026-06-19","count":8,"uniques":5},{"date":"2026-06-20","count":7,"uniques":4},{"date":"2026-06-21","count":5,"uniques":3},{"date":"2026-06-22","count":7,"uniques":4},{"date":"2026-06-23","count":7,"uniques":4},{"date":"2026-06-24","count":5,"uniques":3},{"date":"2026-06-25","count":4,"uniques":2},{"date":"2026-06-26","count":4,"uniques":2},{"date":"2026-06-27","count":7,"uniques":4},{"date":"2026-06-28","count":6,"uniques":4}]},"referrers":[{"referrer":"github.com","count":240,"uniques":160},{"referrer":"www.google.com","count":52,"uniques":34}]},{"name":"mirage-wallpapers","private":false,"fork":false,"stars":333,"open_issues_total":2,"open_prs":0,"pushed_at":"2026-06-23T14:59:47Z","watchers":27,"thumb":"data:image/webp;base64,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","views":{"count":1333,"uniques":888,"daily":[{"date":"2026-06-13","count":43,"uniques":28},{"date":"2026-06-14","count":48,"uniques":32},{"date":"2026-06-15","count":54,"uniques":36},{"date":"2026-06-16","count":72,"uniques":48},{"date":"2026-06-17","count":73,"uniques":48},{"date":"2026-06-18","count":56,"uniques":37},{"date":"2026-06-19","count":81,"uniques":54},{"date":"2026-06-20","count":85,"uniques":56},{"date":"2026-06-21","count":90,"uniques":60},{"date":"2026-06-22","count":78,"uniques":52},{"date":"2026-06-23","count":81,"uniques":54},{"date":"2026-06-24","count":97,"uniques":64},{"date":"2026-06-25","count":113,"uniques":75},{"date":"2026-06-26","count":105,"uniques":70},{"date":"2026-06-27","count":125,"uniques":83},{"date":"2026-06-28","count":132,"uniques":88}],"history":[{"date":"2026-06-13","count":43,"uniques":28},{"date":"2026-06-14","count":48,"uniques":32},{"date":"2026-06-15","count":54,"uniques":36},{"date":"2026-06-16","count":72,"uniques":48},{"date":"2026-06-17","count":73,"uniques":48},{"date":"2026-06-18","count":56,"uniques":37},{"date":"2026-06-19","count":81,"uniques":54},{"date":"2026-06-20","count":85,"uniques":56},{"date":"2026-06-21","count":90,"uniques":60},{"date":"2026-06-22","count":78,"uniques":52},{"date":"2026-06-23","count":81,"uniques":54},{"date":"2026-06-24","count":97,"uniques":64},{"date":"2026-06-25","count":113,"uniques":75},{"date":"2026-06-26","count":105,"uniques":70},{"date":"2026-06-27","count":125,"uniques":83},{"date":"2026-06-28","count":132,"uniques":88}]},"clones":{"count":164,"uniques":109,"daily":[{"date":"2026-06-13","count":8,"uniques":5},{"date":"2026-06-14","count":9,"uniques":6},{"date":"2026-06-15","count":9,"uniques":6},{"date":"2026-06-16","count":9,"uniques":6},{"date":"2026-06-17","count":12,"uniques":8},{"date":"2026-06-18","count":11,"uniques":7},{"date":"2026-06-19","count":9,"uniques":6},{"date":"2026-06-20","count":11,"uniques":7},{"date":"2026-06-21","count":9,"uniques":6},{"date":"2026-06-22","count":10,"uniques":6},{"date":"2026-06-23","count":11,"uniques":7},{"date":"2026-06-24","count":9,"uniques":6},{"date":"2026-06-25","count":14,"uniques":9},{"date":"2026-06-26","count":8,"uniques":5},{"date":"2026-06-27","count":11,"uniques":7},{"date":"2026-06-28","count":14,"uniques":9}],"history":[{"date":"2026-06-13","count":8,"uniques":5},{"date":"2026-06-14","count":9,"uniques":6},{"date":"2026-06-15","count":9,"uniques":6},{"date":"2026-06-16","count":9,"uniques":6},{"date":"2026-06-17","count":12,"uniques":8},{"date":"2026-06-18","count":11,"uniques":7},{"date":"2026-06-19","count":9,"uniques":6},{"date":"2026-06-20","count":11,"uniques":7},{"date":"2026-06-21","count":9,"uniques":6},{"date":"2026-06-22","count":10,"uniques":6},{"date":"2026-06-23","count":11,"uniques":7},{"date":"2026-06-24","count":9,"uniques":6},{"date":"2026-06-25","count":14,"uniques":9},{"date":"2026-06-26","count":8,"uniques":5},{"date":"2026-06-27","count":11,"uniques":7},{"date":"2026-06-28","count":14,"uniques":9}]},"referrers":[{"referrer":"github.com","count":600,"uniques":400},{"referrer":"www.google.com","count":140,"uniques":93},{"referrer":"reddit.com","count":88,"uniques":58}]},{"name":"zephyr-fetch","private":false,"fork":false,"stars":47,"open_issues_total":4,"open_prs":1,"pushed_at":"2026-06-14T14:59:47Z","watchers":5,"thumb":"data:image/webp;base64,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","views":{"count":188,"uniques":125,"daily":[{"date":"2026-06-13","count":16,"uniques":10},{"date":"2026-06-14","count":9,"uniques":6},{"date":"2026-06-15","count":8,"uniques":5},{"date":"2026-06-16","count":16,"uniques":10},{"date":"2026-06-17","count":8,"uniques":5},{"date":"2026-06-18","count":9,"uniques":6},{"date":"2026-06-19","count":11,"uniques":7},{"date":"2026-06-20","count":10,"uniques":6},{"date":"2026-06-21","count":14,"uniques":9},{"date":"2026-06-22","count":15,"uniques":10},{"date":"2026-06-23","count":15,"uniques":10},{"date":"2026-06-24","count":11,"uniques":7},{"date":"2026-06-25","count":14,"uniques":9},{"date":"2026-06-26","count":8,"uniques":5},{"date":"2026-06-27","count":10,"uniques":6},{"date":"2026-06-28","count":14,"uniques":9}],"history":[{"date":"2026-06-13","count":16,"uniques":10},{"date":"2026-06-14","count":9,"uniques":6},{"date":"2026-06-15","count":8,"uniques":5},{"date":"2026-06-16","count":16,"uniques":10},{"date":"2026-06-17","count":8,"uniques":5},{"date":"2026-06-18","count":9,"uniques":6},{"date":"2026-06-19","count":11,"uniques":7},{"date":"2026-06-20","count":10,"uniques":6},{"date":"2026-06-21","count":14,"uniques":9},{"date":"2026-06-22","count":15,"uniques":10},{"date":"2026-06-23","count":15,"uniques":10},{"date":"2026-06-24","count":11,"uniques":7},{"date":"2026-06-25","count":14,"uniques":9},{"date":"2026-06-26","count":8,"uniques":5},{"date":"2026-06-27","count":10,"uniques":6},{"date":"2026-06-28","count":14,"uniques":9}]},"clones":{"count":49,"uniques":32,"daily":[{"date":"2026-06-13","count":2,"uniques":1},{"date":"2026-06-14","count":3,"uniques":2},{"date":"2026-06-15","count":3,"uniques":2},{"date":"2026-06-16","count":3,"uniques":2},{"date":"2026-06-17","count":3,"uniques":2},{"date":"2026-06-18","count":3,"uniques":2},{"date":"2026-06-19","count":4,"uniques":2},{"date":"2026-06-20","count":4,"uniques":2},{"date":"2026-06-21","count":4,"uniques":2},{"date":"2026-06-22","count":4,"uniques":2},{"date":"2026-06-23","count":4,"uniques":2},{"date":"2026-06-24","count":3,"uniques":2},{"date":"2026-06-25","count":2,"uniques":1},{"date":"2026-06-26","count":2,"uniques":1},{"date":"2026-06-27","count":3,"uniques":2},{"date":"2026-06-28","count":2,"uniques":1}],"history":[{"date":"2026-06-13","count":2,"uniques":1},{"date":"2026-06-14","count":3,"uniques":2},{"date":"2026-06-15","count":3,"uniques":2},{"date":"2026-06-16","count":3,"uniques":2},{"date":"2026-06-17","count":3,"uniques":2},{"date":"2026-06-18","count":3,"uniques":2},{"date":"2026-06-19","count":4,"uniques":2},{"date":"2026-06-20","count":4,"uniques":2},{"date":"2026-06-21","count":4,"uniques":2},{"date":"2026-06-22","count":4,"uniques":2},{"date":"2026-06-23","count":4,"uniques":2},{"date":"2026-06-24","count":3,"uniques":2},{"date":"2026-06-25","count":2,"uniques":1},{"date":"2026-06-26","count":2,"uniques":1},{"date":"2026-06-27","count":3,"uniques":2},{"date":"2026-06-28","count":2,"uniques":1}]},"referrers":[{"referrer":"github.com","count":95,"uniques":63}]},{"name":"onyx-grub-theme","private":false,"fork":false,"stars":89,"open_issues_total":1,"open_prs":0,"pushed_at":"2026-06-19T14:59:47Z","watchers":8,"thumb":"data:image/webp;base64,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","views":{"count":379,"uniques":252,"daily":[{"date":"2026-06-13","count":12,"uniques":8},{"date":"2026-06-14","count":22,"uniques":14},{"date":"2026-06-15","count":22,"uniques":14},{"date":"2026-06-16","count":15,"uniques":10},{"date":"2026-06-17","count":21,"uniques":14},{"date":"2026-06-18","count":17,"uniques":11},{"date":"2026-06-19","count":18,"uniques":12},{"date":"2026-06-20","count":28,"uniques":18},{"date":"2026-06-21","count":27,"uniques":18},{"date":"2026-06-22","count":29,"uniques":19},{"date":"2026-06-23","count":30,"uniques":20},{"date":"2026-06-24","count":25,"uniques":16},{"date":"2026-06-25","count":24,"uniques":16},{"date":"2026-06-26","count":33,"uniques":22},{"date":"2026-06-27","count":27,"uniques":18},{"date":"2026-06-28","count":29,"uniques":19}],"history":[{"date":"2026-06-13","count":12,"uniques":8},{"date":"2026-06-14","count":22,"uniques":14},{"date":"2026-06-15","count":22,"uniques":14},{"date":"2026-06-16","count":15,"uniques":10},{"date":"2026-06-17","count":21,"uniques":14},{"date":"2026-06-18","count":17,"uniques":11},{"date":"2026-06-19","count":18,"uniques":12},{"date":"2026-06-20","count":28,"uniques":18},{"date":"2026-06-21","count":27,"uniques":18},{"date":"2026-06-22","count":29,"uniques":19},{"date":"2026-06-23","count":30,"uniques":20},{"date":"2026-06-24","count":25,"uniques":16},{"date":"2026-06-25","count":24,"uniques":16},{"date":"2026-06-26","count":33,"uniques":22},{"date":"2026-06-27","count":27,"uniques":18},{"date":"2026-06-28","count":29,"uniques":19}]},"clones":{"count":80,"uniques":53,"daily":[{"date":"2026-06-13","count":4,"uniques":2},{"date":"2026-06-14","count":6,"uniques":4},{"date":"2026-06-15","count":4,"uniques":2},{"date":"2026-06-16","count":6,"uniques":4},{"date":"2026-06-17","count":4,"uniques":2},{"date":"2026-06-18","count":5,"uniques":3},{"date":"2026-06-19","count":4,"uniques":2},{"date":"2026-06-20","count":6,"uniques":4},{"date":"2026-06-21","count":4,"uniques":2},{"date":"2026-06-22","count":6,"uniques":4},{"date":"2026-06-23","count":6,"uniques":4},{"date":"2026-06-24","count":4,"uniques":2},{"date":"2026-06-25","count":6,"uniques":4},{"date":"2026-06-26","count":4,"uniques":2},{"date":"2026-06-27","count":5,"uniques":3},{"date":"2026-06-28","count":6,"uniques":4}],"history":[{"date":"2026-06-13","count":4,"uniques":2},{"date":"2026-06-14","count":6,"uniques":4},{"date":"2026-06-15","count":4,"uniques":2},{"date":"2026-06-16","count":6,"uniques":4},{"date":"2026-06-17","count":4,"uniques":2},{"date":"2026-06-18","count":5,"uniques":3},{"date":"2026-06-19","count":4,"uniques":2},{"date":"2026-06-20","count":6,"uniques":4},{"date":"2026-06-21","count":4,"uniques":2},{"date":"2026-06-22","count":6,"uniques":4},{"date":"2026-06-23","count":6,"uniques":4},{"date":"2026-06-24","count":4,"uniques":2},{"date":"2026-06-25","count":6,"uniques":4},{"date":"2026-06-26","count":4,"uniques":2},{"date":"2026-06-27","count":5,"uniques":3},{"date":"2026-06-28","count":6,"uniques":4}]},"referrers":[{"referrer":"github.com","count":180,"uniques":120},{"referrer":"bing.com","count":24,"uniques":16}]},{"name":"flux-launcher","private":false,"fork":true,"stars":31,"open_issues_total":0,"open_prs":0,"pushed_at":"2026-06-08T14:59:47Z","watchers":3,"thumb":"data:image/webp;base64,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","views":{"count":47,"uniques":31,"daily":[{"date":"2026-06-13","count":10,"uniques":6},{"date":"2026-06-14","count":9,"uniques":6},{"date":"2026-06-15","count":8,"uniques":5},{"date":"2026-06-16","count":5,"uniques":3},{"date":"2026-06-17","count":4,"uniques":2},{"date":"2026-06-18","count":2,"uniques":1},{"date":"2026-06-19","count":5,"uniques":3},{"date":"2026-06-20","count":4,"uniques":2},{"date":"2026-06-21","count":0,"uniques":1},{"date":"2026-06-22","count":0,"uniques":1},{"date":"2026-06-23","count":0,"uniques":1},{"date":"2026-06-24","count":0,"uniques":1},{"date":"2026-06-25","count":0,"uniques":1},{"date":"2026-06-26","count":0,"uniques":1},{"date":"2026-06-27","count":0,"uniques":1},{"date":"2026-06-28","count":0,"uniques":1}],"history":[{"date":"2026-06-13","count":10,"uniques":6},{"date":"2026-06-14","count":9,"uniques":6},{"date":"2026-06-15","count":8,"uniques":5},{"date":"2026-06-16","count":5,"uniques":3},{"date":"2026-06-17","count":4,"uniques":2},{"date":"2026-06-18","count":2,"uniques":1},{"date":"2026-06-19","count":5,"uniques":3},{"date":"2026-06-20","count":4,"uniques":2},{"date":"2026-06-21","count":0,"uniques":1},{"date":"2026-06-22","count":0,"uniques":1},{"date":"2026-06-23","count":0,"uniques":1},{"date":"2026-06-24","count":0,"uniques":1},{"date":"2026-06-25","count":0,"uniques":1},{"date":"2026-06-26","count":0,"uniques":1},{"date":"2026-06-27","count":0,"uniques":1},{"date":"2026-06-28","count":0,"uniques":1}]},"clones":{"count":29,"uniques":19,"daily":[{"date":"2026-06-13","count":2,"uniques":1},{"date":"2026-06-14","count":2,"uniques":1},{"date":"2026-06-15","count":1,"uniques":1},{"date":"2026-06-16","count":1,"uniques":1},{"date":"2026-06-17","count":2,"uniques":1},{"date":"2026-06-18","count":3,"uniques":2},{"date":"2026-06-19","count":3,"uniques":2},{"date":"2026-06-20","count":1,"uniques":1},{"date":"2026-06-21","count":1,"uniques":1},{"date":"2026-06-22","count":3,"uniques":2},{"date":"2026-06-23","count":1,"uniques":1},{"date":"2026-06-24","count":3,"uniques":2},{"date":"2026-06-25","count":2,"uniques":1},{"date":"2026-06-26","count":1,"uniques":1},{"date":"2026-06-27","count":2,"uniques":1},{"date":"2026-06-28","count":1,"uniques":1}],"history":[{"date":"2026-06-13","count":2,"uniques":1},{"date":"2026-06-14","count":2,"uniques":1},{"date":"2026-06-15","count":1,"uniques":1},{"date":"2026-06-16","count":1,"uniques":1},{"date":"2026-06-17","count":2,"uniques":1},{"date":"2026-06-18","count":3,"uniques":2},{"date":"2026-06-19","count":3,"uniques":2},{"date":"2026-06-20","count":1,"uniques":1},{"date":"2026-06-21","count":1,"uniques":1},{"date":"2026-06-22","count":3,"uniques":2},{"date":"2026-06-23","count":1,"uniques":1},{"date":"2026-06-24","count":3,"uniques":2},{"date":"2026-06-25","count":2,"uniques":1},{"date":"2026-06-26","count":1,"uniques":1},{"date":"2026-06-27","count":2,"uniques":1},{"date":"2026-06-28","count":1,"uniques":1}]},"referrers":[]}],"generated":"2026-06-28 14:59 UTC (DEMO \u2014 fictional data)"};
+const $ = s => document.querySelector(s);
+const fmt = n => (n||0).toLocaleString('en-US');
+const THEMES={
+  gruvbox:{bg:'#0c0d0f',s0:'#131415',s1:'#3c3836',s2:'#504945',bd:'#3c3836',bdhi:'#504945',tx:'#ebdbb2',txhi:'#fbf1c7',txmax:'#fbf1c7',mut:'#928374',green:'#b8bb26',amber:'#fabd2f',cyan:'#83a598',red:'#fb4934',orange:'#fe8019',grid:'#504945',axisLabel:'#a89984',axisWeekend:'#7c6f64',baseline:'#3c3836',marker:'#665c54',palette:['#b8bb26','#83a598','#fabd2f','#d3869b','#fe8019','#8ec07c','#fb4934','#458588','#d65d0e','#b16286','#689d6a','#d79921']},
+  'rose-pine':{bg:'#191724',s0:'#1f1d2e',s1:'#26233a',s2:'#403d52',bd:'#26233a',bdhi:'#403d52',tx:'#e0def4',txhi:'#e0def4',txmax:'#e0def4',mut:'#908caa',green:'#9ccfd8',amber:'#f6c177',cyan:'#31748f',red:'#eb6f92',orange:'#ebbcba',grid:'#403d52',axisLabel:'#908caa',axisWeekend:'#6e6a86',baseline:'#26233a',marker:'#524f67',palette:['#9ccfd8','#c4a7e7','#f6c177','#eb6f92','#31748f','#ebbcba','#9ccfd8','#c4a7e7','#f6c177','#eb6f92','#31748f','#ebbcba']},
+  everforest:{bg:'#1e2326',s0:'#272e33',s1:'#2e383c',s2:'#374145',bd:'#2e383c',bdhi:'#414b50',tx:'#d3c6aa',txhi:'#d3c6aa',txmax:'#d3c6aa',mut:'#859289',green:'#a7c080',amber:'#dbbc7f',cyan:'#7fbbb3',red:'#e67e80',orange:'#e69875',grid:'#374145',axisLabel:'#9da9a0',axisWeekend:'#859289',baseline:'#2e383c',marker:'#414b50',palette:['#a7c080','#7fbbb3','#dbbc7f','#d699b6','#e69875','#83c092','#e67e80','#7fbbb3','#dbbc7f','#d699b6','#e69875','#83c092']},
+  'gruvbox-light':{bg:'#f9f5d7',s0:'#ebdbb2',s1:'#d5c4a1',s2:'#bdae93',bd:'#d5c4a1',bdhi:'#bdae93',tx:'#504945',txhi:'#3c3836',txmax:'#282828',mut:'#665c54',green:'#79740e',amber:'#b57614',cyan:'#427b58',red:'#9d0006',orange:'#af3a03',grid:'#d5c4a1',axisLabel:'#665c54',axisWeekend:'#bdae93',baseline:'#d5c4a1',marker:'#bdae93',palette:['#79740e','#076678','#b57614','#8f3f71','#af3a03','#427b58','#9d0006','#d65d0e','#79740e','#076678','#b57614','#8f3f71']},
+  'catppuccin-latte':{bg:'#eff1f5',s0:'#e6e9ef',s1:'#ccd0da',s2:'#bcc0cc',bd:'#ccd0da',bdhi:'#bcc0cc',tx:'#4c4f69',txhi:'#4c4f69',txmax:'#4c4f69',mut:'#7c7f93',green:'#40a02b',amber:'#df8e1d',cyan:'#179299',red:'#d20f39',orange:'#fe640b',grid:'#ccd0da',axisLabel:'#6c6f85',axisWeekend:'#acb0be',baseline:'#ccd0da',marker:'#bcc0cc',palette:['#40a02b','#1e66f5','#df8e1d','#8839ef','#fe640b','#179299','#d20f39','#dd7878','#40a02b','#1e66f5','#df8e1d','#8839ef']},
+  'tokyo-night-light':{bg:'#d5d6db',s0:'#e9e9ed',s1:'#dfe0e5',s2:'#cbccd1',bd:'#cbccd1',bdhi:'#9699a3',tx:'#343b59',txhi:'#1a1b26',txmax:'#1a1b26',mut:'#4c505e',green:'#485e30',amber:'#965027',cyan:'#166775',red:'#8c4351',orange:'#965027',grid:'#cbccd1',axisLabel:'#4c505e',axisWeekend:'#9699a3',baseline:'#cbccd1',marker:'#9699a3',palette:['#485e30','#34548a','#965027','#5a4a78','#8c4351','#3e6968','#166775','#485e30','#34548a','#965027','#5a4a78','#8c4351']}
+};
+const VARKEYS=['bg','s0','s1','s2','bd','bdhi','tx','txhi','txmax','mut','green','amber','cyan','red'];
+let T=THEMES.gruvbox, GREEN=T.green, AMBER=T.amber, PALETTE=T.palette;
+function applyTheme(name){
+  T=THEMES[name]||THEMES.gruvbox; GREEN=T.green; AMBER=T.amber; PALETTE=T.palette;
+  const rs=document.documentElement.style; VARKEYS.forEach(k=>rs.setProperty('--'+k,T[k]));
+  document.querySelectorAll('#theme-toggle a').forEach(a=>a.className=a.dataset.t===name?'on':'');
+  document.querySelectorAll('.swrow').forEach(sw=>sw.innerHTML=T.palette.map(c=>`<span class="sw2" style="background:${c}"></span>`).join(''));
+  renderCards(); renderTotals();
+}
+let sortKey='views', sortDir=-1;
+const selected = new Set(DATA.repos.map(r=>r.name));
+
+function dailyMap(repo, kind){
+  // prefer merged history (may exceed 14d), else the live 14d daily series
+  const src = (repo[kind].history && repo[kind].history.length) ? repo[kind].history : repo[kind].daily;
+  const m = new Map();
+  src.forEach(d => m.set(d.date, (m.get(d.date)||0) + d.count));
+  return m;
+}
+// GitHub omits zero-traffic days, so a chart would skip them. Build a CONTINUOUS
+// daily axis (gaps = 0) spanning at least `minDays` up to the latest date present.
+function dateRange(dataDates, minDays){
+  if(!dataDates.length) return [];
+  const s=[...dataDates].sort();
+  const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const max=new Date(s[s.length-1]+'T12:00:00');
+  let start=new Date(s[0]+'T12:00:00');
+  const ws=new Date(max); ws.setDate(ws.getDate()-(minDays-1));
+  if(ws<start) start=ws;
+  const out=[], d=new Date(start);
+  while(d<=max){ out.push(ymd(d)); d.setDate(d.getDate()+1); }
+  return out;
+}
+function allDates(kind){
+  const s = new Set();
+  DATA.repos.forEach(r => { if(selected.has(r.name)) dailyMap(r,kind).forEach((_,d)=>s.add(d)); });
+  return [...s].sort();
+}
+function seriesFor(kind){
+  const dates = allDates(kind);
+  const totals = dates.map(d => {
+    let t=0; DATA.repos.forEach(r=>{ if(selected.has(r.name)){ const v=dailyMap(r,kind).get(d); if(v) t+=v; } });
+    return t;
+  });
+  return {dates, totals};
+}
+
+// ── inline SVG line chart (no libs) ──
+function lineChart(svg, datasets, W=960, H=220, labels=null){
+  const hasLabels = !!(labels && labels.length);
+  const pad={l: hasLabels?20:6, r: hasLabels?20:6, t:14, b: hasLabels?38:18};
+  let maxY=1, n=0;
+  datasets.forEach(ds=>{ ds.vals.forEach(v=>maxY=Math.max(maxY,v)); n=Math.max(n,ds.vals.length); });
+  const x = i => pad.l + (n<=1?0:(i/(n-1))*(W-pad.l-pad.r));
+  const y = v => H-pad.b - (v/maxY)*(H-pad.t-pad.b);
+  const yb = (H-pad.b).toFixed(1);
+  let out='';
+  // week structure + date/weekday axis (drawn behind the data lines)
+  if(hasLabels){
+    const WD=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const step=Math.max(1,Math.ceil(n/24));  // label every day up to ~24; thin only beyond
+    for(let i=0;i<labels.length && i<n;i++){
+      const dt=new Date(labels[i]+'T12:00:00'), dow=dt.getDay(), weekend=(dow===0||dow===6);
+      if(dow===1){ // Monday = week start
+        out+=`<line x1="${x(i).toFixed(1)}" y1="${pad.t}" x2="${x(i).toFixed(1)}" y2="${yb}" stroke="${T.grid}" stroke-dasharray="2 3"/>`;
+      }
+      if(i%step===0 || dow===1 || i===n-1){
+        const col=weekend?T.axisWeekend:T.axisLabel;
+        const dd=labels[i].slice(8,10)+'.'+labels[i].slice(5,7);  // DD.MM
+        out+=`<text x="${x(i).toFixed(1)}" y="${H-pad.b+14}" fill="${col}" font-size="9" text-anchor="middle">${WD[dow]}</text>`;
+        out+=`<text x="${x(i).toFixed(1)}" y="${H-pad.b+25}" fill="${col}" font-size="9" text-anchor="middle">${dd}</text>`;
+      }
+    }
+  }
+  // baseline
+  out+=`<line x1="${pad.l}" y1="${yb}" x2="${W-pad.r}" y2="${yb}" stroke="${T.baseline}"/>`;
+  datasets.forEach(ds=>{
+    if(!ds.vals.length) return;
+    const pts = ds.vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    // area
+    out+=`<polygon points="${x(0).toFixed(1)},${yb} ${pts} ${x(ds.vals.length-1).toFixed(1)},${yb}" fill="${ds.color}" opacity="0.08"/>`;
+    out+=`<polyline points="${pts}" fill="none" stroke="${ds.color}" stroke-width="2"/>`;
+  });
+  out+=`<text x="${pad.l}" y="11" fill="${T.mut}" font-size="9">peak ${fmt(maxY)}</text>`;
+  if(hasLabels){ // hidden hover marker (line + one dot per series), positioned on mousemove
+    out+=`<g class="hov" style="display:none"><line stroke="${T.marker}" y1="${pad.t}" y2="${yb}"/>`+
+         datasets.map(ds=>`<circle r="3.2" fill="${ds.color}"/>`).join('')+`</g>`;
+  }
+  svg.__geom={W,H,padL:pad.l,padR:pad.r,padT:pad.t,padB:pad.b,n,maxY};
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  svg.innerHTML=out;
+}
+
+const WDAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+// hover read-out: nearest day under the cursor → date + each series value.
+// Marker elements are created by lineChart (SVG markup), queried here — no createElementNS.
+function attachHover(svg, tip, labels, series){
+  const g=svg.__geom; if(!g) return;
+  const marker=svg.querySelector('.hov'); if(!marker) return;
+  const vline=marker.querySelector('line');
+  const dots=[...marker.querySelectorAll('circle')];
+  const X=i=> g.padL+(g.n<=1?0:(i/(g.n-1))*(g.W-g.padL-g.padR));
+  const Y=v=> g.H-g.padB-(v/g.maxY)*(g.H-g.padT-g.padB);
+  svg.onmousemove=e=>{
+    const r=svg.getBoundingClientRect(); if(!r.width||!g.n) return;
+    const vbx=(e.clientX-r.left)/r.width*g.W;
+    let idx=g.n<=1?0:Math.round((vbx-g.padL)/((g.W-g.padL-g.padR)/(g.n-1)));
+    idx=Math.max(0,Math.min(g.n-1,idx));
+    const xx=X(idx).toFixed(1);
+    vline.setAttribute('x1',xx); vline.setAttribute('x2',xx);
+    dots.forEach((c,k)=>{ c.setAttribute('cx',xx); c.setAttribute('cy',Y(series[k].vals[idx]||0).toFixed(1)); });
+    marker.style.display='';
+    const d=labels[idx], dd=d.slice(8,10)+'.'+d.slice(5,7)+'.'+d.slice(0,4);
+    let html=`<b>${WDAY[new Date(d+'T12:00:00').getDay()]} ${dd}</b>`;
+    series.slice().sort((a,b)=>(b.vals[idx]||0)-(a.vals[idx]||0)).forEach(s=>{ html+=`<br><span style="color:${s.color}">■</span> ${s.name} <b>${fmt(s.vals[idx]||0)}</b>`; });
+    tip.innerHTML=html; tip.style.display='block';
+    const tw=tip.offsetWidth, th=tip.offsetHeight;
+    let px=e.clientX-tw-14; if(px<6) px=6;                       // always to the LEFT of the cursor
+    let py=e.clientY+14; if(py+th>window.innerHeight) py=window.innerHeight-th-6; if(py<6) py=6;  // clamp, no up-flip
+    tip.style.left=px+'px'; tip.style.top=py+'px';
+  };
+  svg.onmouseleave=()=>{ tip.style.display='none'; marker.style.display='none'; };
+}
+
+function renderTotals(){
+  let views=0,vu=0,clones=0,cu=0;
+  DATA.repos.forEach(r=>{ if(selected.has(r.name)){
+    views+=r.views.count; vu+=r.views.uniques; clones+=r.clones.count; cu+=r.clones.uniques;
+  }});
+  $('#t-views').textContent=fmt(views); $('#t-vu').textContent=fmt(vu);
+  $('#t-clones').textContent=fmt(clones); $('#t-cu').textContent=fmt(cu);
+  renderChart();
+  renderGlobalReferrers();
+  renderInsight();
+}
+
+// ── per-repo chart: one line per selected repo, capped via the top-N toggle ──
+let perRepoMetric='views';
+function repoTotal(r, metric){ let t=0; dailyMap(r,metric).forEach(v=>t+=v); return t; }
+let chartMode='total';
+const chartSel=new Set();   // repos drawn in the per-repo chart (driven by the dropdown)
+// trend = recent half of the window vs the prior half (honest, no extrapolation)
+function trend(vals){
+  const n=vals.length; if(n<4) return null;
+  const h=Math.floor(n/2);
+  const prev=vals.slice(0,h).reduce((a,b)=>a+b,0), recent=vals.slice(h).reduce((a,b)=>a+b,0);
+  if(prev===0 && recent===0) return null;
+  const pct = prev===0 ? null : Math.round((recent-prev)/prev*100);   // null = from-zero (no baseline) → rendered as "NA"
+  return {pct, dir: recent>prev?'up':recent<prev?'down':'flat', half:n-h};
+}
+function trendBadge(t){
+  // NA = no computable trend (too little data, or grew from a zero baseline)
+  if(!t) return `<span class="trend flat" title="not enough data for a trend">NA</span>`;
+  if(t.pct===null) return `<span class="trend flat" title="grew from a zero baseline — no % possible">NA</span>`;
+  const arrow = t.dir==='up'?'&#9650;':t.dir==='down'?'&#9660;':'&#8211;';
+  return `<span class="trend ${t.dir}" title="recent half of the window vs the prior half">${arrow} ${t.pct>0?'+':''}${t.pct}%</span>`;
+}
+// labelled per-metric trend ("v ▲200%" / "c NA") for the per-repo legend
+function metricTrend(label, vals){
+  return `<span class="tl">${label}</span>${trendBadge(trend(vals))}`;
+}
+function renderChart(){
+  const svg=$('#chart'), legend=$('#chart-legend');
+  if(chartMode==='total'){
+    $('#metric-toggle').style.display='none'; $('#repo-dd').style.display='none';
+    const v=seriesFor('views'), c=seriesFor('clones');
+    const dates=dateRange([...new Set([...v.dates,...c.dates])], 14);
+    const vm=new Map(v.dates.map((d,i)=>[d,v.totals[i]])), cm=new Map(c.dates.map((d,i)=>[d,c.totals[i]]));
+    const vv=dates.map(d=>vm.get(d)||0), cc=dates.map(d=>cm.get(d)||0);
+    lineChart(svg, [{color:GREEN,vals:vv},{color:AMBER,vals:cc}], 960, 220, dates);
+    attachHover(svg, $('#tip'), dates, [{name:'views',color:GREEN,vals:vv},{name:'clones',color:AMBER,vals:cc}]);
+    const tv=trend(vv), tc=trend(cc);
+    legend.innerHTML=`<span><span class="sw" style="background:${GREEN}"></span>views${trendBadge(tv)}</span><span><span class="sw" style="background:${AMBER}"></span>clones${trendBadge(tc)}</span><span class="muted">— selected repos · last ${(tv||tc||{}).half||7}d vs prior</span>`;
+    $('#cm-total').className='on'; $('#cm-perrepo').className='';
+  } else {
+    $('#metric-toggle').style.display=''; $('#repo-dd').style.display='';
+    const metric=perRepoMetric;
+    const shown=DATA.repos.filter(r=>chartSel.has(r.name)).sort((a,b)=>repoTotal(b,metric)-repoTotal(a,metric));
+    const ds=new Set(); shown.forEach(r=>dailyMap(r,metric).forEach((_,d)=>ds.add(d)));
+    const dates=dateRange([...ds], 14);
+    const series=shown.map((r,i)=>({name:r.name, color:PALETTE[i%PALETTE.length], vals:dates.map(d=>dailyMap(r,metric).get(d)||0)}));
+    lineChart(svg, series.map(s=>({color:s.color,vals:s.vals})), 960, 220, dates);
+    attachHover(svg, $('#tip'), dates, series);
+    legend.innerHTML = shown.length
+      ? shown.map((r,i)=>{
+          const vv=dates.map(d=>dailyMap(r,'views').get(d)||0), cv=dates.map(d=>dailyMap(r,'clones').get(d)||0);
+          return `<span><span class="sw" style="background:${PALETTE[i%PALETTE.length]}"></span>${esc(r.name)} <b>${fmt(repoTotal(r,metric))}</b> <span class="tpair">(${metricTrend('v',vv)}<span class="tsep">/</span>${metricTrend('c',cv)})</span></span>`;
+        }).join('')
+      : `<span class="muted">no repos picked — choose some in the “repos” menu →</span>`;
+    $('#cm-total').className=''; $('#cm-perrepo').className='on';
+    $('#pr-views').className = metric==='views'?'on':''; $('#pr-clones').className = metric==='clones'?'on':'';
+    renderRepoDropdown();
+  }
+}
+// per-repo chart selector: all / none / top 10 + an individual checkbox per repo
+function renderRepoDropdown(){
+  const list=$('#repo-dd-list');
+  const repos=[...DATA.repos].sort((a,b)=>repoTotal(b,perRepoMetric)-repoTotal(a,perRepoMetric));
+  list.innerHTML=repos.map(r=>`<label class="rdd-item"><input type="checkbox" data-r="${esc(r.name)}"${chartSel.has(r.name)?' checked':''}><span>${esc(r.name)}</span><b>${fmt(repoTotal(r,perRepoMetric))}</b></label>`).join('');
+  list.querySelectorAll('input').forEach(cb=>cb.addEventListener('change',()=>{
+    cb.checked?chartSel.add(cb.dataset.r):chartSel.delete(cb.dataset.r); renderChart();
+  }));
+  $('#repo-dd-count').textContent=`(${chartSel.size}/${DATA.repos.length})`;
+}
+function setChartSel(names){ chartSel.clear(); names.forEach(n=>chartSel.add(n)); renderChart(); }
+function topRepos(n){ return [...DATA.repos].sort((a,b)=>repoTotal(b,perRepoMetric)-repoTotal(a,perRepoMetric)).slice(0,n).map(r=>r.name); }
+
+// referrers summed across the selected repos (uniques summed too — overcounts cross-repo)
+function aggregatedReferrers(){
+  const m=new Map();
+  DATA.repos.forEach(r=>{ if(selected.has(r.name)) r.referrers.forEach(x=>{
+    const e=m.get(x.referrer)||{referrer:x.referrer,count:0,uniques:0};
+    e.count+=x.count; e.uniques+=x.uniques; m.set(x.referrer,e);
+  }); });
+  return [...m.values()].sort((a,b)=>b.count-a.count);
+}
+function renderGlobalReferrers(){
+  const agg=aggregatedReferrers().slice(0,10), el=$('#grefs');
+  if(!agg.length){ el.innerHTML='<span class="muted">no referrer data for the selected repos</span>'; return; }
+  const max=agg[0].count;
+  el.innerHTML='<table><tbody>'+agg.map(x=>{
+    const w=Math.round(x.count/Math.max(1,max)*240);
+    return `<tr><td>${esc(x.referrer)}</td><td class="barcell"><div class="refbar" style="width:${w}px"></div></td><td class="cnt">${fmt(x.count)}</td><td class="muted">${fmt(x.uniques)}u</td></tr>`;
+  }).join('')+'</tbody></table>';
+}
+function renderInsight(){
+  const sel=DATA.repos.filter(r=>selected.has(r.name));
+  if(!sel.length){ $('#insight').innerHTML=''; return; }
+  const tv=sel.reduce((a,b)=>b.views.count>a.views.count?b:a);
+  const tc=sel.reduce((a,b)=>b.clones.count>a.clones.count?b:a);
+  const ts=aggregatedReferrers()[0];
+  let oi=0, op=0; sel.forEach(r=>{ oi+=Math.max(0,r.open_issues_total-(r.open_prs||0)); op+=(r.open_prs||0); });
+  const segs=[
+    `★ top views <b>${esc(tv.name)}</b> (${fmt(tv.views.count)})`,
+    `⎘ top clones <b>${esc(tc.name)}</b> (${fmt(tc.clones.count)})`,
+  ];
+  if(ts) segs.push(`↗ top source <b>${esc(ts.referrer)}</b> (${fmt(ts.count)})`);
+  const gl=(base,q,txt)=>`<a class="csl" href="https://github.com/${base}?q=${encodeURIComponent(q)}" target="_blank" rel="noopener noreferrer">${txt}</a>`;
+  const U=DATA.user;
+  segs.push(`◍ in your repos: ${gl('issues',`is:open is:issue user:${U}`,`<b>${fmt(oi)}</b> issues`)} / ${gl('pulls',`is:open is:pr user:${U}`,`<b>${fmt(op)}</b> PRs`)}`);
+  const ai=DATA.authored_issues, ap=DATA.authored_prs;
+  if(ai!=null || ap!=null)
+    segs.push(`✎ you opened: ${gl('issues',`is:open is:issue author:${U}`,`<b>${ai==null?'?':fmt(ai)}</b> issues`)} / ${gl('pulls',`is:open is:pr author:${U}`,`<b>${ap==null?'?':fmt(ap)}</b> PRs`)}`);
+  else
+    segs.push(`<span class="muted">✎ you opened: search n/a (token lacks search)</span>`);
+  // each segment is nowrap → the line only breaks between segments (at the · separators)
+  $('#insight').innerHTML=segs.map(s=>`<span class="iseg">${s}</span>`).join(' · ');
+}
+
+const PILL=r=>`${r.private?'<span class="pill">private</span>':''}${r.fork?'<span class="pill">fork</span>':''}`;
+function monoTint(name){ let h=0; for(let i=0;i<name.length;i++) h+=name.charCodeAt(i);
+  return T.palette[h%T.palette.length]+'99'; }
+function initials(r){ const b=r.name.replace(/^omarchy-/,'').replace(/-theme$/,''); return ((b||r.name).slice(0,2)).toUpperCase(); }
+// top referrers as horizontal bars (vyrx "Online" language-bar style)
+function refBars(r){
+  const refs=r.referrers.slice(0,3);
+  if(!refs.length) return `<div class="none">no referrers (14d)</div>`;
+  const max=refs[0].count;
+  return refs.map((x,i)=>{
+    const w=Math.round(x.count/Math.max(1,max)*100);
+    return `<div class="rb"><span class="rbn">${esc(x.referrer)}</span><span class="rbt"><span class="rbf" style="width:${w}%; background:${PALETTE[i%PALETTE.length]}"></span></span><span class="rbc">${fmt(x.count)}</span></div>`;
+  }).join('');
+}
+// "updated 3d ago" from pushed_at (the report runs in a browser, Date.now() is fine)
+function relTime(iso){
+  if(!iso) return '';
+  const d=Math.floor((Date.now()-new Date(iso).getTime())/86400000);
+  if(d<=0) return 'today';
+  if(d===1) return 'yesterday';
+  if(d<30) return d+'d ago';
+  if(d<365) return Math.floor(d/30)+'mo ago';
+  return Math.floor(d/365)+'y ago';
+}
+function renderCards(){
+  const val=(r,k)=> k==='name'?r.name.toLowerCase() : k==='stars'?r.stars : k==='updated'?(Date.parse(r.pushed_at)||0) : r[k].count;
+  const rows=[...DATA.repos].sort((a,b)=>{ const A=val(a,sortKey),B=val(b,sortKey);
+    if(sortKey==='name') return A<B?-1:A>B?1:0; return B-A; });
+  const grid=$('#grid'); grid.innerHTML='';
+  rows.forEach(r=>{
+    const iss=Math.max(0,r.open_issues_total-(r.open_prs||0)), prs=r.open_prs==null?'?':fmt(r.open_prs);
+    const card=document.createElement('div');
+    card.className='repo-card'+(selected.has(r.name)?'':' off');
+    card.innerHTML=`
+      <input class="sel" type="checkbox" title="include in totals" ${selected.has(r.name)?'checked':''}>
+      <div class="chead">
+        ${r.thumb?`<img class="cthumb" loading="lazy" decoding="async" alt="" src="${r.thumb}">`
+                 :`<div class="cthumb-np" style="color:${monoTint(r.name)}">${esc(initials(r))}</div>`}
+        <div class="chead-t">
+          <div class="rtitle"><a class="rlink" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}" target="_blank" rel="noopener noreferrer">${esc(r.name)}</a><span class="pills">${PILL(r)}</span></div>
+          <div class="cstars">&#9733; ${fmt(r.stars)} stars${r.watchers!=null?` &nbsp;·&nbsp; ${fmt(r.watchers)} watching`:''}</div>
+        </div>
+      </div>
+      <div class="cbig">
+        <div><div class="cl">views (14d)</div><div class="cnum">${fmt(r.views.count)}</div></div>
+        <div><div class="cl">clones</div><div class="cnum">${fmt(r.clones.count)}</div></div>
+      </div>
+      <div class="crefs">${refBars(r)}</div>
+      <div class="csec"><span style="color:${T.orange}">&#9711;</span> <a class="csl" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}/issues" target="_blank" rel="noopener noreferrer"><b>${fmt(iss)}</b> issues</a> <span class="sep">·</span> <span style="color:${T.cyan}">&#8644;</span> <a class="csl" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}/pulls" target="_blank" rel="noopener noreferrer"><b>${prs}</b> PRs</a>${r.pushed_at?` <span class="sep">·</span> updated <b>${relTime(r.pushed_at)}</b>`:''}</div>`;
+    card.querySelector('input').addEventListener('click',e=>{
+      e.target.checked?selected.add(r.name):selected.delete(r.name);
+      card.classList.toggle('off', !e.target.checked);
+      renderTotals();
+    });
+    grid.appendChild(card);
+  });
+}
+const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// card sort
+document.querySelectorAll('#sort-toggle a').forEach(a=>a.addEventListener('click',()=>{
+  sortKey=a.dataset.s;
+  document.querySelectorAll('#sort-toggle a').forEach(x=>x.className = x.dataset.s===sortKey?'on':'');
+  renderCards();
+}));
+
+// bulk include/exclude all forked repos from the totals
+$('#nofork').addEventListener('change',e=>{
+  DATA.repos.forEach(r=>{ if(r.fork){ e.target.checked ? selected.delete(r.name) : selected.add(r.name); } });
+  renderCards(); renderTotals();
+});
+
+// chart mode (Total ⇄ Per repo) + per-repo metric toggle
+$('#cm-total').addEventListener('click',()=>{ chartMode='total'; renderChart(); });
+$('#cm-perrepo').addEventListener('click',()=>{ chartMode='perrepo'; renderChart(); });
+$('#pr-views').addEventListener('click',()=>{ perRepoMetric='views'; renderChart(); });
+$('#pr-clones').addEventListener('click',()=>{ perRepoMetric='clones'; renderChart(); });
+$('#rdd-all').addEventListener('click',()=>setChartSel(DATA.repos.map(r=>r.name)));
+$('#rdd-none').addEventListener('click',()=>setChartSel([]));
+$('#rdd-top').addEventListener('click',()=>setChartSel(topRepos(10)));
+// the menu is position:fixed (the chart card clips overflow) — place it under the summary on open
+$('#repo-dd').addEventListener('toggle',function(){
+  if(!this.open) return;
+  const r=this.querySelector('summary').getBoundingClientRect(), menu=this.querySelector('.repodd-menu');
+  menu.style.top=Math.round(r.bottom+4)+'px';
+  menu.style.left=Math.round(Math.max(6, Math.min(r.right-menu.offsetWidth, window.innerWidth-menu.offsetWidth-6)))+'px';
+});
+// native <details> doesn't close on outside-click — do it ourselves
+document.addEventListener('click',e=>{ const dd=$('#repo-dd'); if(dd && dd.open && !dd.contains(e.target)) dd.open=false; });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ const dd=$('#repo-dd'); if(dd) dd.open=false; } });
+
+// theme switcher (gruvbox / rose pine / everforest — all dark)
+document.querySelectorAll('#theme-toggle a').forEach(a=>a.addEventListener('click',()=>applyTheme(a.dataset.t)));
+
+function init(){
+  $('#who').textContent=DATA.user;
+  if(DATA.light) $('#lightbanner').innerHTML='<div class="lightbanner"><b>light mode</b> — public data only · traffic (views / clones / referrers) and watcher counts need a token</div>';
+  if(DATA.avatar){ const a=$('#avatar'); a.src=DATA.avatar; a.hidden=false; }
+  topRepos(10).forEach(n=>chartSel.add(n));   // per-repo chart starts at the top 10 by views
+  const totalStars=DATA.repos.filter(r=>!r.fork).reduce((s,r)=>s+(r.stars||0),0);
+  $('#ustats').innerHTML=`<span style="color:var(--amber)">&#9733;</span> <b>${fmt(totalStars)}</b> stars &nbsp;·&nbsp; <b>${fmt(DATA.followers||0)}</b> followers`;
+  $('#meta').textContent=`generated ${DATA.generated} · ${DATA.repos.length} repos · GitHub serves a rolling ${DATA.window_days}-day window`;
+  if(DATA.skipped && DATA.skipped.length){
+    $('#skip').innerHTML='<div class="skip">skipped (no access): '+DATA.skipped.map(s=>esc(s.name)).join(', ')+'</div>';
+  }
+  $('#foot').innerHTML=`gh-traffic · single self-contained file · no token stored here · charts are inline SVG (offline).<br>`+
+    `Trend &#9650;/&#9660; compares the recent half of the shown window against the prior half (e.g. the last 7 days vs the 7 before); it shows “NA” when there's no prior baseline (it grew from zero or there's too little data). `+
+    (DATA.history_enabled?`Daily series is merged into a local history store, so it can extend past 14 days over time. `:``)+
+    `Referrers are GitHub's 14-day aggregate (no per-day data). `+
+    `Unique-visitor/cloner totals are summed per repo and overcount anyone who visited several repos.`;
+  applyTheme('gruvbox');  // sets CSS vars + paints palette swatches + renders
+}
+init();
+</script>
+</body>
+</html>

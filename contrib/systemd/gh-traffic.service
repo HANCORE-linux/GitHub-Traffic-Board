@@ -1,0 +1,15 @@
+[Unit]
+Description=gh-traffic — accumulate GitHub traffic history (beats the 14-day window)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Projects/gh-traffic
+ExecStart=/usr/bin/python3 %h/Projects/gh-traffic/gh_traffic.py --no-open
+# The token must be available headlessly (no prompt in a timer). Either:
+#   • run once:  python3 gh_traffic.py --save-token   (stored 0600 in ~/.config/gh-traffic/token), OR
+#   • drop a token into the unit env:  systemctl --user edit gh-traffic.service
+#       [Service]
+#       Environment=GITHUB_TOKEN=github_pat_xxx
+# Prefer the saved-file route so the token isn't in systemd's journalable env.

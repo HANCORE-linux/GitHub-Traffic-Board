@@ -1,0 +1,10 @@
+[Unit]
+Description=Run gh-traffic daily to accumulate GitHub traffic history
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+# never commit secrets or generated artifacts
+token
+*.token
+report.html
+*.tmp
+
+# local fetch data — history store + thumbnails live in ~/gh-traffic/cache
+cache/
+.cache/
+__pycache__/
+*.pyc
