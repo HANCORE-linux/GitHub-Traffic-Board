@@ -99,7 +99,7 @@ def token_fingerprint(tok: str) -> str:
     import re
     prefixes = {"github_pat_": "fine-grained", "ghp_": "classic", "gho_": "oauth",
                 "ghs_": "app", "ghr_": "refresh"}
-    kind = next((v for p, v in prefixes.items() if tok.startswith(p)), f"unknown(prefix={tok[:4]!r})")
+    kind = next((v for p, v in prefixes.items() if tok.startswith(p)), "unknown")
     issues = []
     if any(c.isspace() for c in tok):
         issues.append("whitespace-inside")
@@ -293,6 +293,9 @@ def fetch_avatar(url: str) -> str | None:
     avatars.githubusercontent.com is public (no auth), embedded so the report
     stays offline."""
     if not url:
+        return None
+    p = urllib.parse.urlsplit(url)   # only GitHub's CDN over https — guard a tampered/redirected URL (no file://, no off-host)
+    if p.scheme != "https" or not p.netloc.endswith(".githubusercontent.com"):
         return None
     small = url + ("&" if "?" in url else "?") + "s=96"
     try:
@@ -842,7 +845,7 @@ function attachHover(svg, tip, labels, series){
     marker.style.display='';
     const d=labels[idx], dd=d.slice(8,10)+'.'+d.slice(5,7)+'.'+d.slice(0,4);
     let html=`<b>${WDAY[new Date(d+'T12:00:00').getDay()]} ${dd}</b>`;
-    series.slice().sort((a,b)=>(b.vals[idx]||0)-(a.vals[idx]||0)).forEach(s=>{ html+=`<br><span style="color:${s.color}">■</span> ${s.name} <b>${fmt(s.vals[idx]||0)}</b>`; });
+    series.slice().sort((a,b)=>(b.vals[idx]||0)-(a.vals[idx]||0)).forEach(s=>{ html+=`<br><span style="color:${s.color}">■</span> ${esc(s.name)} <b>${fmt(s.vals[idx]||0)}</b>`; });
     tip.innerHTML=html; tip.style.display='block';
     const tw=tip.offsetWidth, th=tip.offsetHeight;
     let px=e.clientX-tw-14; if(px<6) px=6;                       // always to the LEFT of the cursor
