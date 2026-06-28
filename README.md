@@ -53,13 +53,11 @@ On the first run (with no token configured) it asks:
   choose [F/l]:
 ```
 
-- **Full** — the real product: 14-day **views / clones / referrers** for every
-  repo you own, plus stars, watchers, open issues/PRs, last-updated and the
-  issues/PRs *you* authored anywhere. Needs a fine-grained token (see below).
-- **Light** (`--public <username>`) — works for **any** GitHub user with **no
-  token at all**, but only public metadata (stars, open issues, language,
-  last-updated, avatar, thumbnails). **No traffic** — GitHub keeps
-  views/clones/referrers private to the repo owner, so they're simply blank.
+- **Full** — your repos' 14-day **views / clones / referrers**, plus stars,
+  watchers, issues/PRs and what *you* authored. Needs a fine-grained token (below).
+- **Light** (`--public <user>`) — **any** GitHub user, **no token**: public
+  metadata only (stars, issues, language, updated, thumbnails). **No traffic** —
+  GitHub keeps views/clones/referrers private to the owner.
 
 ---
 
@@ -70,11 +68,9 @@ push-level trust on the repo. So mint the **smallest possible** token:
 
 1. GitHub → Settings → Developer settings → **Fine-grained personal access tokens**.
 2. **Repository access:** only the repos you want to see (or *All repositories*).
-3. **Permissions:** `Repository permissions → Administration → Read-only` —
-   this covers views, clones and referrers. *(Optionally add
-   `Pull requests → Read` so the open-PR counts resolve; without it they simply
-   show "?". `Metadata → Read` is granted automatically; `Commit statuses` is
-   not needed.)*
+3. **Permissions:** `Administration → Read-only` (covers views, clones,
+   referrers). *Optionally* `Pull requests → Read` so open-PR counts resolve
+   (else shown as "?").
 4. Set an **expiration**.
 
 <p align="center">
@@ -90,29 +86,14 @@ push-level trust on the repo. So mint the **smallest possible** token:
 *(A **classic** token would need the broad `repo` scope — full read/write to
 **all** your private repos. Avoid it. Light mode needs no token at all.)*
 
-How this tool treats the token:
+How the token is handled:
 
-- It lives **only in this Python process** and is sent **only** to
-  `api.github.com`.
-- It is **never written into `report.html`** — the report contains only
-  aggregated numbers. *(Verify: `grep -iE 'ghp_|github_pat_|bearer' report.html`
-  finds nothing.)*
-- The report has **no auto-loaded external resources** — charts are inline SVG,
-  preview images and the avatar are embedded base64, no CDN, no third-party JS.
-  It opens **fully offline**. *(The only outbound links are click-through
-  `github.com` links on the repo/issue/PR labels.)*
-- By default the token is **prompted each run** and never persisted.
-
-### Token input (priority order)
-
-1. `GITHUB_TOKEN` environment variable, else
-2. `~/.config/gh-traffic/token` (only if you opted in with `--save-token`,
-   stored `chmod 600`), else
-3. an interactive prompt (default — nothing is stored).
-
-The token is the **one** thing kept outside the project folder — deliberately,
-so a secret can't end up in a folder you share or commit. `token` is in
-`.gitignore` either way.
+- It lives **only in this process**, is sent **only** to `api.github.com`, and is
+  **never written into `report.html`** *(verify: `grep -iE 'ghp_|github_pat_|bearer' report.html`)*.
+- The report has **no external resources** — inline SVG, base64 images, no CDN or
+  third-party JS — so it opens **fully offline**.
+- **Prompted each run** by default (nothing stored). `--save-token` keeps it `0600`
+  in `~/.config/gh-traffic/token` — outside the project folder, and gitignored.
 
 ---
 
@@ -160,36 +141,21 @@ nothing is written into the cloned repo, and it's always in the same findable pl
 ~/.config/gh-traffic/token  ← only with --save-token (a secret, kept in XDG)
 ```
 
-Every run is a **fresh 14-day snapshot** straight from the GitHub API — nothing
-is accumulated or persisted beyond the preview-image cache, which only avoids
-re-downloading images (`--refresh-thumbs` ignores it).
-
-### Light mode & rate limits
-
-Light mode uses the **unauthenticated** GitHub API, which is limited to **60
-requests/hour**. A scan of many repos with thumbnails can hit that ceiling;
-thumbnails are cached, so just re-run to fill the gaps.
+Every run is a **fresh 14-day snapshot** from the API — nothing is persisted but
+the thumbnail cache. *Light mode* uses the unauthenticated API (**60 requests/h**);
+a big scan with thumbnails can hit that — just re-run, thumbnails are cached.
 
 ---
 
 ## Demo
 
-GitHub shows `.html` files as **source code**, never as a live page (it won't
-run repo HTML). To see the demo *rendered*:
+GitHub shows `.html` as **source**, not a live page — so to view the demo *rendered*:
 
-- **In your browser (once the repo is public):**
-  [full board](https://raw.githack.com/HANCORE-linux/GitHub-Traffic-Board/main/demo.html)
-  · [light mode](https://raw.githack.com/HANCORE-linux/GitHub-Traffic-Board/main/demo-light.html)
-  — these [githack](https://raw.githack.com) links serve the raw file with the
-  right content type so the browser renders it (needs a public repo).
-- **A `github.io` URL instead:** enable Pages once — *Settings → Pages → Source:
-  Deploy from a branch → `main` / `/ (root)`* — then it's at
-  `https://hancore-linux.github.io/GitHub-Traffic-Board/demo.html`.
-- **Offline / while private:** download [`demo.html`](demo.html) (or clone) and
-  open it in a browser.
+- **Public repo:** the [githack](https://raw.githack.com) links above render it in
+  the browser (or enable GitHub Pages for a `github.io` URL).
+- **Private / offline:** download [`demo.html`](demo.html) and open it locally.
 
-The demos are full boards built from fictional data with generated preview
-images — no token, no network. Regenerate them with `python3 make_demo.py`.
+Built from fictional data — no token, no network. Regenerate with `python3 make_demo.py`.
 
 ---
 
