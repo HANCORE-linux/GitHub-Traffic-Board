@@ -195,7 +195,8 @@ systemctl --user enable --now gh-traffic.timer
 systemctl --user list-timers gh-traffic.timer   # check it's scheduled
 ```
 
-The units assume the project lives at `~/Projects/gh-traffic`; edit the paths if not.
+The units assume the script is at `~/gh-traffic/gh_traffic.py` (the install
+location above); edit the paths if you put it elsewhere.
 
 ---
 

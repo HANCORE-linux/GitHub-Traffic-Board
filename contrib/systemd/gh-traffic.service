@@ -5,8 +5,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/Projects/gh-traffic
-ExecStart=/usr/bin/python3 %h/Projects/gh-traffic/gh_traffic.py --no-open
+WorkingDirectory=%h/gh-traffic
+ExecStart=/usr/bin/python3 %h/gh-traffic/gh_traffic.py --no-open
 # The token must be available headlessly (no prompt in a timer). Either:
 #   • run once:  python3 gh_traffic.py --save-token   (stored 0600 in ~/.config/gh-traffic/token), OR
 #   • drop a token into the unit env:  systemctl --user edit gh-traffic.service
