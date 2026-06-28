@@ -167,6 +167,15 @@ Built from fictional data — no token, no network. Regenerate with `python3 mak
 
 ---
 
+## Credits
+
+This project started from **`github_traffic_report.py` by Roman Tsisyk** and was
+rebuilt from there into a single stdlib-only file — a new fully-offline report,
+six themes, trend analysis, a per-repo dropdown, light mode and more. Thanks to
+Roman for the original.
+
+---
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).
