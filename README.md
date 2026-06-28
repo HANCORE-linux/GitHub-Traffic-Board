@@ -15,9 +15,13 @@ service beyond your own GitHub token.
 
 ![GitHub Traffic Board](preview.png)
 
-> **Try it with zero setup:** download [`demo.html`](demo.html) and open it in a
-> browser — it's a full board built from fictional data (no token, no network).
-> `demo-light.html` shows the no-token *light mode*.
+> **▶ Live demo** (renders in your browser):
+> **[full board](https://raw.githack.com/HANCORE-linux/GitHub-Traffic-Board/main/demo.html)** ·
+> **[light mode](https://raw.githack.com/HANCORE-linux/GitHub-Traffic-Board/main/demo-light.html)**
+> — fictional data, no token, no real data.
+> *(These links go live the moment the repo is public. GitHub itself shows
+> `.html` files as **source**, not as a page — so until then, download
+> [`demo.html`](demo.html) and open it locally.)*
 
 ---
 
@@ -197,12 +201,22 @@ The units assume the project lives at `~/Projects/gh-traffic`; edit the paths if
 
 ## Demo
 
-`demo.html` and `demo-light.html` are full boards built from fictional data with
-generated preview images — no token, no network. Regenerate them with:
+GitHub shows `.html` files as **source code**, never as a live page (it won't
+run repo HTML). To see the demo *rendered*:
 
-```
-python3 make_demo.py
-```
+- **In your browser (once the repo is public):**
+  [full board](https://raw.githack.com/HANCORE-linux/GitHub-Traffic-Board/main/demo.html)
+  · [light mode](https://raw.githack.com/HANCORE-linux/GitHub-Traffic-Board/main/demo-light.html)
+  — these [githack](https://raw.githack.com) links serve the raw file with the
+  right content type so the browser renders it (needs a public repo).
+- **A `github.io` URL instead:** enable Pages once — *Settings → Pages → Source:
+  Deploy from a branch → `main` / `/ (root)`* — then it's at
+  `https://hancore-linux.github.io/GitHub-Traffic-Board/demo.html`.
+- **Offline / while private:** download [`demo.html`](demo.html) (or clone) and
+  open it in a browser.
+
+The demos are full boards built from fictional data with generated preview
+images — no token, no network. Regenerate them with `python3 make_demo.py`.
 
 ---
 
