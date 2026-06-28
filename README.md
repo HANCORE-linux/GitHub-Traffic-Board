@@ -97,7 +97,8 @@ How the token is handled:
 
 ---
 
-## Features
+<details>
+<summary><strong>Features</strong></summary>
 
 - **Cumulative chart** of views & clones across the repos you select, plus a
   **per-repo chart** (one line per repo) with a dropdown to pick *all / none /
@@ -113,9 +114,10 @@ How the token is handled:
   image), downscales it, and embeds it base64 so the report stays offline.
 - **Sort** by views / clones / stars / updated / name; **exclude forks** toggle.
 
----
+</details>
 
-## Flags
+<details>
+<summary><strong>Flags</strong></summary>
 
 | Flag | Effect |
 |------|--------|
@@ -128,9 +130,10 @@ How the token is handled:
 | `--no-thumbs` | skip preview images (faster; all placeholders) |
 | `--refresh-thumbs` | re-fetch preview images, ignoring the ETag cache |
 
----
+</details>
 
-## Where it stores data
+<details>
+<summary><strong>Where it stores data</strong></summary>
 
 The output and cache live in **one tidy folder in your home directory** —
 nothing is written into the cloned repo, and it's always in the same findable place:
@@ -145,9 +148,10 @@ Every run is a **fresh 14-day snapshot** from the API — nothing is persisted b
 the thumbnail cache. *Light mode* uses the unauthenticated API (**60 requests/h**);
 a big scan with thumbnails can hit that — just re-run, thumbnails are cached.
 
----
+</details>
 
-## Demo
+<details>
+<summary><strong>Demo</strong></summary>
 
 GitHub shows `.html` as **source**, not a live page — so to view the demo *rendered*:
 
@@ -157,13 +161,16 @@ GitHub shows `.html` as **source**, not a live page — so to view the demo *ren
 
 Built from fictional data — no token, no network. Regenerate with `python3 make_demo.py`.
 
----
+</details>
 
-## Requirements
+<details>
+<summary><strong>Requirements</strong></summary>
 
 - **Python 3.9+** — standard library only.
 - **ImageMagick** (`magick` or `convert`) — *optional*, only for preview
   thumbnails. Without it, cards show monogram placeholders.
+
+</details>
 
 ---
 
