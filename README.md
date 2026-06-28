@@ -128,8 +128,6 @@ so a secret can't end up in a folder you share or commit. `token` is in
   (click-through to GitHub), and "updated *N*d ago", all the same height.
 - **Six themes** (switch live, top-left): `gruvbox`, `rose pine`, `everforest`
   (dark) · `gruvbox light`, `catppuccin latte`, `tokyo night light` (light).
-- **Beyond 14 days** — daily counts are merged into a local history store so the
-  charts grow past GitHub's rolling 14-day window when you run it regularly.
 - **Preview thumbnails** — finds `preview.png` (or any top-level / `showcases/`
   image), downscales it, and embeds it base64 so the report stays offline.
 - **Sort** by views / clones / stars / updated / name; **exclude forks** toggle.
@@ -143,7 +141,6 @@ so a secret can't end up in a folder you share or commit. `token` is in
 | `--public [USER]` | **light mode**: public data for `USER` (no token, no traffic) |
 | `--out PATH` | output file (default: `~/gh-traffic/report.html`) |
 | `--no-open` | don't open a browser |
-| `--no-history` | don't read/write the local history store (pure 14-day snapshot) |
 | `--save-token` | save the entered token to `~/.config/gh-traffic/token` (0600) |
 | `--repos a,b,c` | only these repo names |
 | `--workers N` | parallel fetch workers (default: 8) |
@@ -158,45 +155,20 @@ The output and cache live in **one tidy folder in your home directory** —
 nothing is written into the cloned repo, and it's always in the same findable place:
 
 ```
-~/gh-traffic/report.html         ← the generated board (--out to change)
-~/gh-traffic/cache/history.json  ← accumulated daily counts (beats the 14-day window)
-~/gh-traffic/cache/thumbs/       ← downscaled preview images + ETags (re-used via HTTP 304)
-~/.config/gh-traffic/token       ← only with --save-token (a secret, kept in XDG)
+~/gh-traffic/report.html    ← the generated board (--out to change)
+~/gh-traffic/cache/thumbs/  ← downscaled preview images + ETags (re-used via HTTP 304)
+~/.config/gh-traffic/token  ← only with --save-token (a secret, kept in XDG)
 ```
 
-The **traffic numbers are fetched fresh on every run** — the board is always
-current. The cache only (a) *accumulates* daily history to extend past 14 days,
-and (b) caches preview images to avoid re-downloading them. Neither makes the
-displayed numbers stale. `--no-history` / `--refresh-thumbs` opt out.
+Every run is a **fresh 14-day snapshot** straight from the GitHub API — nothing
+is accumulated or persisted beyond the preview-image cache, which only avoids
+re-downloading images (`--refresh-thumbs` ignores it).
 
 ### Light mode & rate limits
 
 Light mode uses the **unauthenticated** GitHub API, which is limited to **60
 requests/hour**. A scan of many repos with thumbnails can hit that ceiling;
 thumbnails are cached, so just re-run to fill the gaps.
-
----
-
-## Beyond 14 days — daily accumulation (systemd)
-
-GitHub only serves a rolling 14-day window. Ready-made user units in
-`contrib/systemd/` run the tool headlessly once a day so the history store keeps
-growing:
-
-```bash
-# 1. make the token available headlessly (no prompt in a timer):
-python3 gh_traffic.py --save-token        # stored 0600 in ~/.config/gh-traffic/token
-
-# 2. install + enable the user timer:
-mkdir -p ~/.config/systemd/user
-cp contrib/systemd/gh-traffic.{service,timer} ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now gh-traffic.timer
-systemctl --user list-timers gh-traffic.timer   # check it's scheduled
-```
-
-The units assume the script is at `~/gh-traffic/gh_traffic.py` (the install
-location above); edit the paths if you put it elsewhere.
 
 ---
 

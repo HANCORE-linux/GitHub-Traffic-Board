@@ -39,7 +39,6 @@ DATA_DIR = Path.home() / "gh-traffic"               # report + cache live in one
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gh-traffic"
 CACHE_DIR = DATA_DIR / "cache"
 TOKEN_FILE = CONFIG_DIR / "token"                    # the token (a secret) stays in XDG, NOT the project folder
-HISTORY_FILE = CACHE_DIR / "history.json"
 THUMB_DIR = CACHE_DIR / "thumbs"
 MAGICK = shutil.which("magick") or shutil.which("convert")  # optional image downscaler
 
@@ -496,39 +495,6 @@ def collect_light(gh: GitHub, owner: str, repos: list[dict],
     return out
 
 
-# ───────────────────────────── history (14-day workaround) ─────────────────
-def merge_history(collected: list[dict]) -> dict:
-    """Merge today's daily counts into a long-lived local store, deduped by date.
-
-    GitHub only serves 14 days; running this regularly accumulates real history.
-    Only `count` is mergeable (uniques can't be summed across days), so we keep
-    counts here and read the authoritative 14-day uniques live.
-    """
-    try:
-        store = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-    except (FileNotFoundError, ValueError):
-        store = {}
-    for r in collected:
-        slot = store.setdefault(r["name"], {"views": {}, "clones": {}})
-        for kind in ("views", "clones"):
-            for d in r[kind]["daily"]:
-                slot[kind][d["date"]] = d["count"]  # last-writer-wins == latest fetch
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = HISTORY_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(store, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, HISTORY_FILE)  # atomic
-    return store
-
-
-def attach_history(collected: list[dict], store: dict) -> None:
-    """Replace each repo's daily series with the merged (possibly >14d) series."""
-    for r in collected:
-        slot = store.get(r["name"], {})
-        for kind in ("views", "clones"):
-            series = sorted((slot.get(kind) or {}).items())
-            r[kind]["history"] = [{"date": d, "count": c} for d, c in series]
-
-
 # ───────────────────────────── html report ────────────────────────────────
 def render(data: dict, out: Path) -> None:
     # Escape '<' so a crafted repo/referrer/path string can never break out of
@@ -776,8 +742,7 @@ let sortKey='views', sortDir=-1;
 const selected = new Set(DATA.repos.map(r=>r.name));
 
 function dailyMap(repo, kind){
-  // prefer merged history (may exceed 14d), else the live 14d daily series
-  const src = (repo[kind].history && repo[kind].history.length) ? repo[kind].history : repo[kind].daily;
+  const src = repo[kind].daily;   // GitHub's live 14-day daily series
   const m = new Map();
   src.forEach(d => m.set(d.date, (m.get(d.date)||0) + d.count));
   return m;
@@ -1119,8 +1084,7 @@ function init(){
   }
   $('#foot').innerHTML=`gh-traffic · single self-contained file · no token stored here · charts are inline SVG (offline).<br>`+
     `Trend &#9650;/&#9660; compares the recent half of the shown window against the prior half (e.g. the last 7 days vs the 7 before); it shows “NA” when there's no prior baseline (it grew from zero or there's too little data). `+
-    (DATA.history_enabled?`Daily series is merged into a local history store, so it can extend past 14 days over time. `:``)+
-    `Referrers are GitHub's 14-day aggregate (no per-day data). `+
+    `Views/clones are GitHub's rolling 14-day window; referrers are its 14-day aggregate (no per-day data). `+
     `Unique-visitor/cloner totals are summed per repo and overcount anyone who visited several repos.`;
   applyTheme('gruvbox');  // sets CSS vars + paints palette swatches + renders
 }
@@ -1149,7 +1113,6 @@ def main() -> None:
     ap.add_argument("--out", default=str(DATA_DIR / "report.html"),
                     help="output HTML path (default: ~/gh-traffic/report.html)")
     ap.add_argument("--no-open", action="store_true", help="don't open the report in a browser")
-    ap.add_argument("--no-history", action="store_true", help="don't read/write the local history store")
     ap.add_argument("--save-token", action="store_true", help="save the entered token to the XDG config dir (0600)")
     ap.add_argument("--repos", default="", help="comma-separated subset of repo names")
     ap.add_argument("--workers", type=int, default=8, help="parallel fetch workers (default: 8)")
@@ -1191,7 +1154,7 @@ def main() -> None:
         avatar = fetch_avatar(avatar_url) if not args.no_thumbs else None
         print(f"Building light report for {len(repos)} public repos…")
         collected = collect_light(gh, username, repos, want_thumbs, args.refresh_thumbs)
-        skipped, history_enabled = [], False
+        skipped = []
         authored_issues, authored_prs = gh.authored_counts(username)
     else:
         token, source = load_token(args.save_token)
@@ -1211,10 +1174,6 @@ def main() -> None:
         if skipped:
             print(f"  skipped {len(skipped)} (no access): " + ", ".join(s["name"] for s in skipped))
         authored_issues, authored_prs = gh.authored_counts(user)
-        history_enabled = not args.no_history
-        if history_enabled:
-            store = merge_history(collected)
-            attach_history(collected, store)
 
     data = {
         "user": user,
@@ -1225,7 +1184,6 @@ def main() -> None:
         "light": light,
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "window_days": 14,
-        "history_enabled": history_enabled,
         "repos": collected,
         "skipped": skipped,
     }

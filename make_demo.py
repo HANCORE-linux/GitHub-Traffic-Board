@@ -52,8 +52,8 @@ def make_repo(name, c1, c2, stars, iss, prs, days_ago, watchers,
         "stars": stars, "open_issues_total": iss + prs, "open_prs": prs,
         "pushed_at": (NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "watchers": watchers, "thumb": gen_image(name, c1, c2),
-        "views": {"count": vtot, "uniques": vtot * 2 // 3, "daily": vdaily, "history": vdaily},
-        "clones": {"count": ctot, "uniques": ctot * 2 // 3, "daily": cdaily, "history": cdaily},
+        "views": {"count": vtot, "uniques": vtot * 2 // 3, "daily": vdaily},
+        "clones": {"count": ctot, "uniques": ctot * 2 // 3, "daily": cdaily},
         "referrers": refs,
     }
 
@@ -116,13 +116,12 @@ def main():
         "authored_prs": 3,
         "light": False,
         "window_days": 14,
-        "history_enabled": True,
         "skipped": [],
     }
     full = {**base, "repos": repos,
             "generated": NOW.strftime("%Y-%m-%d %H:%M UTC") + " (DEMO — fictional data)"}
     ght.render(full, HERE / "demo.html")
-    light = {**base, "light": True, "history_enabled": False, "repos": to_light(repos),
+    light = {**base, "light": True, "repos": to_light(repos),
              "generated": NOW.strftime("%Y-%m-%d %H:%M UTC") + " (DEMO — light mode, fictional data)"}
     ght.render(light, HERE / "demo-light.html")
     for f in ("demo.html", "demo-light.html"):
