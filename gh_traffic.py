@@ -428,6 +428,7 @@ def collect(gh: GitHub, owner: str, repos: list[dict], workers: int,
                 "private": r.get("private", False),
                 "fork": r.get("fork", False),
                 "stars": r.get("stargazers_count", 0),
+                "forks": r.get("forks_count", 0),
                 "open_issues_total": oc,
                 "open_prs": prs,
                 "pushed_at": r.get("pushed_at") or "",
@@ -480,6 +481,7 @@ def collect_light(gh: GitHub, owner: str, repos: list[dict],
             "private": False,
             "fork": r.get("fork", False),
             "stars": r.get("stargazers_count", 0),
+            "forks": r.get("forks_count", 0),
             "open_issues_total": r.get("open_issues_count", 0),  # issues+PRs combined
             "open_prs": None,        # can't split without /pulls (a call per repo) → card shows '?'
             "pushed_at": r.get("pushed_at") or "",
@@ -634,10 +636,13 @@ html{scrollbar-width:thin; scrollbar-color:var(--s2) var(--bg)}
 .chead-t{min-width:0}
 .chead-t .rtitle{font-size:14px; font-weight:600; color:var(--green); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .chead-t .cstars{font-size:13px; color:var(--amber); margin-top:5px; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.chead-t .cstars .cwatch{margin-left:5px}
+.chead-t .cstars .star{font-size:1.25em; line-height:1; vertical-align:-1px}
+.chead-t .cstars .eye{display:inline-block; width:1em; height:1em; fill:currentColor; vertical-align:-2px; margin-left:3px; opacity:.85}
 .pills .pill{margin-left:6px}
-.cbig{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px}
+.cbig{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:14px}
 .cbig .cl{font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--mut)}
-.cbig .cnum{font-size:23px; font-weight:800; color:var(--txhi); font-variant-numeric:tabular-nums; line-height:1.15; margin-top:2px}
+.cbig .cnum{font-size:21px; font-weight:800; color:var(--txhi); font-variant-numeric:tabular-nums; line-height:1.15; margin-top:2px; overflow:hidden; text-overflow:ellipsis}
 .crefs{display:flex; flex-direction:column; gap:7px; margin-bottom:12px}
 .rb{display:grid; grid-template-columns:1fr 84px auto; gap:9px; align-items:center; font-size:11px}
 .rbn{color:var(--tx); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -653,6 +658,7 @@ html{scrollbar-width:thin; scrollbar-color:var(--s2) var(--bg)}
 </style>
 </head>
 <body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><symbol id="i-eye" viewBox="0 0 16 16"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.831.88 9.577.43 8.899a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.023C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.824.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"></path></symbol></svg>
 <div class="wrap">
   <div class="themebar">
     <span>theme</span>
@@ -686,7 +692,7 @@ html{scrollbar-width:thin; scrollbar-color:var(--s2) var(--bg)}
         <details class="repodd" id="repo-dd" style="display:none">
           <summary>repos <span id="repo-dd-count" class="muted"></span></summary>
           <div class="repodd-menu">
-            <div class="repodd-actions"><a id="rdd-all">all</a><a id="rdd-none">none</a><a id="rdd-top">top 10</a></div>
+            <div class="repodd-actions"><a id="rdd-all">all</a><a id="rdd-none">none</a><a id="rdd-top">top 10</a><a id="rdd-nofork">exclude forks</a></div>
             <div id="repo-dd-list"></div>
           </div>
         </details>
@@ -700,7 +706,7 @@ html{scrollbar-width:thin; scrollbar-color:var(--s2) var(--bg)}
     <span class="section-title" style="margin:0">Repositories</span>
     <label><input type="checkbox" id="nofork"> exclude forks</label>
     <span class="muted">· sort</span>
-    <span class="toggle" id="sort-toggle"><a data-s="views" class="on">views</a><a data-s="clones">clones</a><a data-s="stars">stars</a><a data-s="updated">updated</a><a data-s="name">name</a></span>
+    <span class="toggle" id="sort-toggle"><a data-s="views" class="on">views</a><a data-s="clones">clones</a><a data-s="stars">stars</a><a data-s="forks">forks</a><a data-s="updated">updated</a><a data-s="name">name</a></span>
   </div>
   <div id="grid" class="repo-grid"></div>
   <div id="skip"></div>
@@ -1005,7 +1011,7 @@ function relTime(iso){
   return Math.floor(d/365)+'y ago';
 }
 function renderCards(){
-  const val=(r,k)=> k==='name'?r.name.toLowerCase() : k==='stars'?r.stars : k==='updated'?(Date.parse(r.pushed_at)||0) : r[k].count;
+  const val=(r,k)=> k==='name'?r.name.toLowerCase() : k==='stars'?r.stars : k==='forks'?(r.forks||0) : k==='updated'?(Date.parse(r.pushed_at)||0) : r[k].count;
   const rows=[...DATA.repos].sort((a,b)=>{ const A=val(a,sortKey),B=val(b,sortKey);
     if(sortKey==='name') return A<B?-1:A>B?1:0; return B-A; });
   const grid=$('#grid'); grid.innerHTML='';
@@ -1020,12 +1026,13 @@ function renderCards(){
                  :`<div class="cthumb-np" style="color:${monoTint(r.name)}">${esc(initials(r))}</div>`}
         <div class="chead-t">
           <div class="rtitle"><a class="rlink" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}" target="_blank" rel="noopener noreferrer">${esc(r.name)}</a><span class="pills">${PILL(r)}</span></div>
-          <div class="cstars">&#9733; ${fmt(r.stars)} stars${r.watchers!=null?` &nbsp;·&nbsp; ${fmt(r.watchers)} watching`:''}</div>
+          <div class="cstars"><span class="star">&#9733;</span> ${fmt(r.stars)} stars${r.watchers!=null?`<span class="cwatch">&#183; ${fmt(r.watchers)}<svg class="eye" aria-hidden="true"><use href="#i-eye"></use></svg></span>`:''}</div>
         </div>
       </div>
       <div class="cbig">
         <div><div class="cl">views (14d)</div><div class="cnum">${fmt(r.views.count)}</div></div>
         <div><div class="cl">clones</div><div class="cnum">${fmt(r.clones.count)}</div></div>
+        <div><div class="cl">forks</div><div class="cnum">${fmt(r.forks||0)}</div></div>
       </div>
       <div class="crefs">${refBars(r)}</div>
       <div class="csec"><span style="color:${T.orange}">&#9711;</span> <a class="csl" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}/issues" target="_blank" rel="noopener noreferrer"><b>${fmt(iss)}</b> issues</a> <span class="sep">·</span> <span style="color:${T.cyan}">&#8644;</span> <a class="csl" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}/pulls" target="_blank" rel="noopener noreferrer"><b>${prs}</b> PRs</a>${r.pushed_at?` <span class="sep">·</span> updated <b>${relTime(r.pushed_at)}</b>`:''}</div>`;
@@ -1060,6 +1067,7 @@ $('#pr-clones').addEventListener('click',()=>{ perRepoMetric='clones'; renderCha
 $('#rdd-all').addEventListener('click',()=>setChartSel(DATA.repos.map(r=>r.name)));
 $('#rdd-none').addEventListener('click',()=>setChartSel([]));
 $('#rdd-top').addEventListener('click',()=>setChartSel(topRepos(10)));
+$('#rdd-nofork').addEventListener('click',()=>setChartSel([...chartSel].filter(n=>!DATA.repos.some(r=>r.name===n&&r.fork))));
 // the menu is position:fixed (the chart card clips overflow) — place it under the summary on open
 $('#repo-dd').addEventListener('toggle',function(){
   if(!this.open) return;

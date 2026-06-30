@@ -101,18 +101,19 @@ How the token is handled:
 <summary><strong>Features</strong></summary>
 
 - **Cumulative chart** of views & clones across the repos you select, plus a
-  **per-repo chart** (one line per repo) with a dropdown to pick *all / none /
-  individual* repos.
+  **per-repo chart** (one line per repo) with a dropdown to pick repos
+  (*all / none / top 10 / individual*, or **exclude forks**).
 - **Trend analysis** — every series shows ▲/▼ % comparing the recent half of the
   window against the prior half (per-repo: views **and** clones, side by side).
 - **Referrers** — top referring sites per repo and aggregated across the board.
-- **Per-repo cards** — preview image, stars, watchers, open issues / PRs
-  (click-through to GitHub), and "updated *N*d ago", all the same height.
+- **Per-repo cards** — preview image, stars, watchers, views / clones / forks,
+  open issues / PRs (click-through to GitHub), and "updated *N*d ago", all the
+  same height.
 - **Six themes** (switch live, top-left): `gruvbox`, `rose pine`, `everforest`
   (dark) · `gruvbox light`, `catppuccin latte`, `tokyo night light` (light).
 - **Preview thumbnails** — finds `preview.png` (or any top-level / `showcases/`
   image), downscales it, and embeds it base64 so the report stays offline.
-- **Sort** by views / clones / stars / updated / name; **exclude forks** toggle.
+- **Sort** by views / clones / stars / forks / updated / name; **exclude forks** toggle.
 
 </details>
 

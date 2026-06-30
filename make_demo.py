@@ -49,7 +49,7 @@ def make_repo(name, c1, c2, stars, iss, prs, days_ago, watchers,
     cdaily, ctot = daily_series(n, cbase, 0)
     return {
         "name": name, "private": False, "fork": fork,
-        "stars": stars, "open_issues_total": iss + prs, "open_prs": prs,
+        "stars": stars, "forks": stars // 8, "open_issues_total": iss + prs, "open_prs": prs,
         "pushed_at": (NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "watchers": watchers, "thumb": gen_image(name, c1, c2),
         "views": {"count": vtot, "uniques": vtot * 2 // 3, "daily": vdaily},
