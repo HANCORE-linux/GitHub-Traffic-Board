@@ -554,6 +554,7 @@ a:hover{text-decoration:underline}
 h1{
   font-size:24px; font-weight:800; letter-spacing:3px; color:var(--txmax); margin:0 0 2px;
 }
+h1 a{color:inherit}
 .sub{font-size:11px; color:var(--mut); letter-spacing:2px}
 .hrow{display:flex; gap:14px; align-items:center}
 .avatar{width:48px; height:48px; border-radius:50%; flex:0 0 auto; border:1px solid var(--bdhi)}
@@ -674,7 +675,7 @@ html{scrollbar-width:thin; scrollbar-color:var(--s2) var(--bg)}
       <div class="hrow">
         <img id="avatar" class="avatar" alt="" hidden>
         <div>
-          <h1>GH&nbsp;TRAFFIC</h1>
+          <h1><a href="https://github.com/HANCORE-linux/GitHub-Traffic-Board">GitHub&nbsp;Trafficboard</a></h1>
           <div class="ustats" id="ustats"></div>
           <div class="sub" id="meta"></div>
         </div>
