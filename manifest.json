@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.hancore-linux.traffic-board",
   "name": "GitHub Traffic",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "author": "HANCORE-linux",
   "description": "Views, clones and referrers of your own GitHub repositories, with HTML and image export.",
   "kinds": [
