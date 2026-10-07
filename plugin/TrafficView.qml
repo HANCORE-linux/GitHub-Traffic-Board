@@ -21,6 +21,9 @@ Rectangle {
   property string barDisplay: "both"
   property bool exportPrivate: false
   property bool optionsOpen: false
+  property string repoMode: "all"
+  property var selectedRepos: []
+  property var availableRepos: []
 
   property color foreground: "#d3d7b5"
   property color background: "#040704"
@@ -31,7 +34,7 @@ Rectangle {
   property real cornerRadius: 4
   property string fontFamily: "monospace"
 
-  readonly property bool editing: tokenInput.activeFocus || optionsTokenInput.activeFocus || lightField.input.activeFocus || optionsUserField.input.activeFocus
+  readonly property bool editing: tokenInput.activeFocus || optionsTokenInput.activeFocus || lightField.input.activeFocus || optionsUserField.input.activeFocus || repoFilterInput.activeFocus
 
   signal refreshRequested()
   signal exportReportRequested()
@@ -48,6 +51,11 @@ Rectangle {
   signal lightUserRemoved(string user)
   signal loadAnywayRequested()
   signal confirmDismissed()
+  signal chooseReposRequested()
+  signal repoModeRequested(string value)
+  signal repoToggled(string name)
+  signal reposSelected(var names)
+  signal reposCleared()
 
   readonly property color dim: Qt.darker(foreground, 1.4)
   readonly property int pad: 14
@@ -71,6 +79,14 @@ Rectangle {
   readonly property var nextPage: hasData ? Model.nextStep(Math.min(shownCount, model.repoCount), model.repoCount) : null
   readonly property var shownRepos: hasData ? model.repos.slice(0, Math.min(shownCount, model.repos.length)) : []
   readonly property bool showNotice: errorCode !== "" && errorCode !== "no-token" && errorCode !== "confirm"
+  readonly property var filteredRepos: {
+    var q = repoFilterInput.text.trim().toLowerCase()
+    return availableRepos.filter(function(r) { return q === "" || r.name.toLowerCase().indexOf(q) >= 0 })
+  }
+  readonly property string repoSummary: availableRepos.length === 0 ? "Your repositories show up here after the next refresh."
+    : repoMode === "all" ? "All " + Model.fmt(availableRepos.length) + " repositories, about " + Model.fmt(Model.requestsFor(availableRepos.length)) + " API requests per refresh."
+    : selectedRepos.length === 0 ? "Nothing selected yet, so all repositories load."
+    : Model.fmt(selectedRepos.length) + " of " + Model.fmt(availableRepos.length) + " selected, about " + Model.fmt(Model.requestsFor(selectedRepos.length)) + " API requests per refresh."
 
   property int hoverRow: -1
   property int hoverDay: -1
@@ -429,6 +445,42 @@ Rectangle {
     }
 
     Rectangle {
+      visible: root.showTraffic && root.trafficModel !== null && root.trafficModel.skippedText !== "" && !root.exporting
+      width: parent.width
+      height: skippedLabel.implicitHeight + 16
+      radius: root.cornerRadius
+      color: root.rgba(root.foreground, 0.06)
+
+      Text {
+        id: skippedGlyph
+        textFormat: Text.PlainText
+        x: 12
+        y: 8
+        text: ""
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: 12
+      }
+
+      Text {
+        id: skippedLabel
+        textFormat: Text.PlainText
+        anchors.left: skippedGlyph.right
+        anchors.leftMargin: 8
+        anchors.right: parent.right
+        anchors.rightMargin: 10
+        y: 8
+        text: root.trafficModel ? root.trafficModel.skippedText : ""
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: 11
+        wrapMode: Text.WordWrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
+      }
+    }
+
+    Rectangle {
       visible: root.errorCode === "confirm" && root.confirmInfo !== null && !root.optionsOpen
       width: parent.width
       height: confirmCol.implicitHeight + 20
@@ -470,6 +522,11 @@ Rectangle {
             glyph: "\udb81\udc50"
             available: !root.busy
             onClicked: root.loadAnywayRequested()
+          }
+
+          Chip {
+            label: "Choose repositories"
+            onClicked: root.chooseReposRequested()
           }
 
           Chip {
@@ -584,6 +641,7 @@ Rectangle {
         height: 46
 
         Text {
+          id: viewsNum
           textFormat: Text.PlainText
           y: -4
           text: root.trafficModel ? Model.fmt(root.trafficModel.views) : ""
@@ -594,7 +652,9 @@ Rectangle {
 
         Text {
           textFormat: Text.PlainText
-          anchors.bottom: parent.bottom
+          anchors.left: viewsNum.right
+          anchors.leftMargin: 6
+          anchors.baseline: viewsNum.baseline
           text: "views"
           color: root.dim
           font.family: root.fontFamily
@@ -1283,6 +1343,200 @@ Rectangle {
             font.family: root.fontFamily
             font.pixelSize: 11
           }
+        }
+      }
+
+      Rectangle {
+        visible: root.viewMode === "traffic"
+        width: parent.width
+        height: 1
+        color: root.rgba(root.foreground, 0.12)
+      }
+
+      Column {
+        visible: root.viewMode === "traffic"
+        width: parent.width
+        spacing: 8
+
+        Text {
+          textFormat: Text.PlainText
+          text: "Repositories"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: 10
+          font.bold: true
+        }
+
+        Row {
+          spacing: 8
+
+          Chip {
+            label: "All"
+            selected: root.repoMode === "all"
+            onClicked: root.repoModeRequested("all")
+          }
+
+          Chip {
+            label: "Selected"
+            selected: root.repoMode === "selected"
+            onClicked: root.repoModeRequested("selected")
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          wrapMode: Text.WordWrap
+          text: root.repoSummary
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: 11
+        }
+
+        Row {
+          visible: root.repoMode === "selected" && root.availableRepos.length > 0
+          spacing: 8
+
+          Rectangle {
+            width: 262
+            height: 28
+            radius: root.cornerRadius
+            color: root.rgba(root.foreground, 0.04)
+            border.width: 1
+            border.color: root.rgba(root.foreground, repoFilterInput.activeFocus ? 0.25 : 0.4)
+
+            TextInput {
+              id: repoFilterInput
+              anchors.fill: parent
+              anchors.leftMargin: 10
+              anchors.rightMargin: 10
+              verticalAlignment: TextInput.AlignVCenter
+              clip: true
+              maximumLength: 100
+              color: root.foreground
+              selectionColor: root.rgba(root.foreground, 0.35)
+              font.family: root.fontFamily
+              font.pixelSize: 12
+            }
+
+            Text {
+              visible: repoFilterInput.text === ""
+              textFormat: Text.PlainText
+              x: 10
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Filter repositories"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: 12
+            }
+          }
+
+          Chip {
+            label: "Select shown"
+            available: root.filteredRepos.length > 0
+            onClicked: root.reposSelected(root.filteredRepos.map(function(r) { return r.name }))
+          }
+
+          Chip {
+            label: "Clear"
+            available: root.selectedRepos.length > 0
+            onClicked: root.reposCleared()
+          }
+        }
+
+        Rectangle {
+          visible: root.repoMode === "selected" && root.filteredRepos.length > 0
+          width: parent.width
+          height: Math.min(root.filteredRepos.length, 10) * 24 + 2
+          radius: root.cornerRadius
+          color: "transparent"
+          border.width: 1
+          border.color: root.rgba(root.foreground, 0.4)
+
+          ListView {
+            id: repoList
+            anchors.fill: parent
+            anchors.margins: 1
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            model: root.filteredRepos
+
+            delegate: Item {
+              id: repoRow
+              readonly property bool chosen: root.selectedRepos.indexOf(modelData.name) >= 0
+              width: repoList.width
+              height: 24
+
+              Rectangle {
+                anchors.fill: parent
+                color: root.rgba(root.foreground, repoMouse.containsMouse ? 0.08 : 0)
+              }
+
+              Text {
+                id: repoCheck
+                textFormat: Text.PlainText
+                x: 10
+                width: 14
+                anchors.verticalCenter: parent.verticalCenter
+                text: repoRow.chosen ? "\uf42e" : ""
+                color: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: 12
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                anchors.left: repoCheck.right
+                anchors.leftMargin: 8
+                anchors.right: repoLock.left
+                anchors.rightMargin: 8
+                anchors.verticalCenter: parent.verticalCenter
+                text: modelData.name
+                color: repoRow.chosen ? root.foreground : root.dim
+                font.family: root.fontFamily
+                font.pixelSize: 12
+                elide: Text.ElideRight
+              }
+
+              Text {
+                id: repoLock
+                textFormat: Text.PlainText
+                x: parent.width - width - 12
+                anchors.verticalCenter: parent.verticalCenter
+                text: modelData.private ? "\uf456" : ""
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: 11
+              }
+
+              MouseArea {
+                id: repoMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.repoToggled(modelData.name)
+              }
+            }
+          }
+
+          Rectangle {
+            visible: repoList.contentHeight > repoList.height
+            x: parent.width - 5
+            y: 1 + repoList.visibleArea.yPosition * repoList.height
+            width: 2
+            height: repoList.visibleArea.heightRatio * repoList.height
+            radius: 1
+            color: root.rgba(root.foreground, 0.35)
+          }
+        }
+
+        Text {
+          visible: root.repoMode === "selected" && root.availableRepos.length > 0 && root.filteredRepos.length === 0
+          textFormat: Text.PlainText
+          text: "No repository matches."
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: 11
         }
       }
 

@@ -1283,7 +1283,11 @@ def traffic_json(args: argparse.Namespace) -> dict:
     except ApiError as e:
         return api_failure(e.status, e.data)
     listed = len(repos)
-    repos = pick_repos([r for r in repos if not r.get("fork")], args.repos)
+    own = [r for r in repos if not r.get("fork")]
+    available = sorted(({"name": r["name"], "private": r.get("private") is True}
+                        for r in own if isinstance(r.get("name"), str) and r["name"]),
+                       key=lambda r: r["name"].lower())
+    repos = pick_repos(own, args.repos)
     requests = 1 + listed // 100 + 1 + 3 * len(repos)
     if args.confirm_above and requests >= args.confirm_above:
         return {
@@ -1292,6 +1296,7 @@ def traffic_json(args: argparse.Namespace) -> dict:
             "message": f"Loading traffic for {len(repos)} repositories uses about {requests} API requests.",
             "repoCount": len(repos),
             "requests": requests,
+            "available": available,
         }
     collected, skipped = collect_traffic(gh, me["login"], repos, args.workers)
     return {
@@ -1301,6 +1306,7 @@ def traffic_json(args: argparse.Namespace) -> dict:
         "window_days": 14,
         "repos": collected,
         "skipped": skipped,
+        "available": available,
     }
 
 

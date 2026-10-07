@@ -79,6 +79,21 @@ function relTime(iso, now) {
   return Math.floor(d / 365) + "y ago"
 }
 
+function skipReason(reason) {
+  var r = String(reason || "").toLowerCase()
+  if (r.indexOf("rate limit") >= 0) return "rate limit"
+  if (r.indexOf("network error") >= 0 || r.indexOf("timed out") >= 0) return "network"
+  if (r.indexOf("http 404") >= 0) return "not found"
+  if (r.indexOf("http 401") >= 0 || r.indexOf("http 403") >= 0) return "no access"
+  return "error"
+}
+
+function skippedText(list) {
+  if (!list || list.length === 0) return ""
+  var head = list.length === 1 ? "1 repository could not be loaded: " : list.length + " repositories could not be loaded: "
+  return head + list.map(function(s) { return s.name + " (" + skipReason(s.reason) + ")" }).join(", ")
+}
+
 function nextStep(shown, total) {
   if (shown >= total) return null
   if (shown <= TOP_REPOS && total - shown > MORE_REPOS) return { count: shown + MORE_REPOS, label: "Show " + MORE_REPOS + " more" }
@@ -176,7 +191,11 @@ function build(snapshot, now) {
   var prev = dailyViews.slice(0, 13).slice().sort(function(a, b) { return a - b })
   var median = prev.length ? prev[Math.floor(prev.length / 2)] : 0
   var views = sum(dailyViews)
-  var skipped = Array.isArray(snapshot.skipped) ? snapshot.skipped.length : 0
+  var skipped = (Array.isArray(snapshot.skipped) ? snapshot.skipped : []).filter(function(x) {
+    return x && typeof x === "object"
+  }).map(function(x) {
+    return { name: String(x.name || ""), reason: String(x.reason || "") }
+  })
 
   return {
     user: String(snapshot.user || ""),
@@ -196,7 +215,9 @@ function build(snapshot, now) {
     repos: repos,
     referrers: ranked.slice(0, TOP_REFERRERS),
     referrerCount: ranked.length,
-    requests: requestsFor(repos.length + skipped),
+    requests: requestsFor(repos.length + skipped.length),
+    skipped: skipped,
+    skippedText: skippedText(skipped),
     barLabel: compact(views),
     spike: median > 0 && dailyViews[13] >= 2 * median,
   }

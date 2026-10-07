@@ -44,8 +44,13 @@ Panel {
   property string lightUser: ""
   property var lightUsers: []
   property string pendingSettings: ""
+  property string repoMode: "all"
+  property var selectedRepos: []
+  property var availableRepos: []
+  property string repoArgAtOpen: ""
 
   readonly property bool lightMode: viewMode === "light"
+  readonly property string repoArg: repoMode === "selected" ? selectedRepos.join(",") : ""
   readonly property bool lightMatches: lightSnapshot !== null && String(lightSnapshot.user || "").toLowerCase() === lightUser.toLowerCase()
   readonly property var view: lightMode ? (lightMatches ? Model.buildLight(lightSnapshot) : null) : Model.build(trafficSnapshot)
   readonly property var publicView: lightMode ? view : Model.build(publicSnapshot(trafficSnapshot))
@@ -116,8 +121,8 @@ Panel {
     fetcher.mode = root.viewMode
     fetcher.command = root.lightMode
       ? ["sh", "-c", "mkdir -p \"$1\" && exec python3 \"$2\" --json --public \"$3\"", "sh", root.lightDir, root.scriptPath, root.lightUser]
-      : ["sh", "-c", "mkdir -p \"$1\" && exec python3 \"$2\" --json --confirm-above \"$3\"", "sh", root.dataDir, root.scriptPath,
-         force === true ? "0" : String(Model.WARN_REQUESTS)]
+      : ["sh", "-c", "mkdir -p \"$1\" && exec python3 \"$2\" --json --confirm-above \"$3\" --repos \"$4\"", "sh", root.dataDir, root.scriptPath,
+         force === true ? "0" : String(Model.WARN_REQUESTS), root.repoArg]
     root.fetchHandled = false
     fetcher.running = true
   }
@@ -140,12 +145,14 @@ Panel {
       } else {
         root.trafficSnapshot = payload
         trafficFile.setText(JSON.stringify(payload) + "\n")
+        root.updateAvailable(payload.available)
       }
       if (fetcher.mode === root.viewMode) root.clearError()
       return
     }
     if (fetcher.mode !== root.viewMode) return
     if (payload && payload.error === "confirm") {
+      root.updateAvailable(payload.available)
       root.errorCode = "confirm"
       root.errorMessage = String(payload.message || "")
       root.confirmInfo = { repoCount: Number(payload.repoCount) || 0, requests: Number(payload.requests) || 0 }
@@ -185,7 +192,72 @@ Panel {
   }
 
   function settingsJson() {
-    return JSON.stringify({ barDisplay: root.barDisplay, viewMode: root.viewMode, lightUsers: root.lightUsers, lightUser: root.lightUser, exportPrivate: root.exportPrivate })
+    return JSON.stringify({ barDisplay: root.barDisplay, viewMode: root.viewMode, lightUsers: root.lightUsers, lightUser: root.lightUser, exportPrivate: root.exportPrivate, repoMode: root.repoMode, repos: root.selectedRepos })
+  }
+
+  function validRepo(name) {
+    return /^[A-Za-z0-9._-]{1,100}$/.test(String(name || ""))
+  }
+
+  function updateAvailable(list) {
+    if (!Array.isArray(list)) return
+    var clean = list.filter(function(r) { return r && root.validRepo(r.name) }).map(function(r) {
+      return { name: String(r.name), private: r.private === true }
+    })
+    root.availableRepos = clean
+    var names = clean.map(function(r) { return r.name })
+    var kept = root.selectedRepos.filter(function(n) { return names.indexOf(n) >= 0 })
+    if (kept.length === root.selectedRepos.length) return
+    root.selectedRepos = kept
+    root.saveSettings()
+  }
+
+  function setRepoMode(value) {
+    if (["all", "selected"].indexOf(value) < 0 || value === root.repoMode) return
+    root.repoMode = value
+    root.saveSettings()
+  }
+
+  function toggleRepo(name) {
+    var i = root.selectedRepos.indexOf(name)
+    var list = root.selectedRepos.slice()
+    if (i >= 0) list.splice(i, 1)
+    else if (root.validRepo(name)) list.push(name)
+    else return
+    root.selectedRepos = list
+    root.saveSettings()
+  }
+
+  function selectRepos(names) {
+    var list = root.selectedRepos.slice()
+    ;(names || []).forEach(function(n) {
+      if (root.validRepo(n) && list.indexOf(n) < 0) list.push(String(n))
+    })
+    if (list.length === root.selectedRepos.length) return
+    root.selectedRepos = list
+    root.saveSettings()
+  }
+
+  function clearRepos() {
+    if (root.selectedRepos.length === 0) return
+    root.selectedRepos = []
+    root.saveSettings()
+  }
+
+  function chooseRepos() {
+    trafficView.optionsOpen = true
+    root.setRepoMode("selected")
+  }
+
+  function optionsToggled(open) {
+    if (open) {
+      root.repoArgAtOpen = root.repoArg
+      return
+    }
+    if (root.repoArg === root.repoArgAtOpen || root.lightMode || !root.hasToken) return
+    root.repoArgAtOpen = root.repoArg
+    root.clearError()
+    root.refresh()
   }
 
   function sameUser(a, b) {
@@ -419,6 +491,12 @@ Panel {
         if (["icon", "text", "both"].indexOf(p.barDisplay) >= 0) root.barDisplay = p.barDisplay
         if (["traffic", "light"].indexOf(p.viewMode) >= 0) root.viewMode = p.viewMode
         root.exportPrivate = p.exportPrivate === true
+        if (["all", "selected"].indexOf(p.repoMode) >= 0) root.repoMode = p.repoMode
+        var repos = []
+        ;(Array.isArray(p.repos) ? p.repos : []).forEach(function(n) {
+          if (root.validRepo(n) && repos.indexOf(n) < 0) repos.push(String(n))
+        })
+        root.selectedRepos = repos
         var users = []
         var source = Array.isArray(p.lightUsers) ? p.lightUsers : (typeof p.lightUser === "string" ? [p.lightUser] : [])
         source.forEach(function(u) {
@@ -442,7 +520,10 @@ Panel {
       if (root.trafficSnapshot !== null) return
       try {
         var p = JSON.parse(text())
-        if (p && p.ok === true && p.light !== true) root.trafficSnapshot = p
+        if (p && p.ok === true && p.light !== true) {
+          root.trafficSnapshot = p
+          root.updateAvailable(p.available)
+        }
       } catch (e) {
       }
     }
@@ -533,11 +614,20 @@ Panel {
           confirmation: root.confirmation
           barDisplay: root.barDisplay
           exportPrivate: root.exportPrivate
+          repoMode: root.repoMode
+          selectedRepos: root.selectedRepos
+          availableRepos: root.availableRepos
           cornerRadius: Style.cornerRadius
           fontFamily: Style.font.family
           onRefreshRequested: root.refresh()
           onLoadAnywayRequested: root.loadAnyway()
           onConfirmDismissed: root.clearError()
+          onChooseReposRequested: root.chooseRepos()
+          onRepoModeRequested: function(value) { root.setRepoMode(value) }
+          onRepoToggled: function(name) { root.toggleRepo(name) }
+          onReposSelected: function(names) { root.selectRepos(names) }
+          onReposCleared: root.clearRepos()
+          onOptionsOpenChanged: root.optionsToggled(optionsOpen)
           onExportReportRequested: root.exportReport()
           onExportImageRequested: root.exportImage()
           onRepoActivated: function(name) {

@@ -91,6 +91,7 @@ omarchy plugin remove io.github.hancore-linux.traffic-board
 
 - **Manual only:** data loads when you click refresh. About 3 API requests per
   repository; from 200 requests on, the panel asks first.
+- **Repositories** (gear icon): load all of them, or only the ones you tick.
 - **Two modes** (gear icon): *Traffic* for your own repos (token needed), *Light*
   for the public repos of any user (no token, about 2 requests).
 - **List:** top 16, then *Show 36 more*, then *Show all*.
