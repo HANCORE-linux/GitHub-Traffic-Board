@@ -61,13 +61,7 @@ def _token_available() -> bool:
     return bool(clean_token(os.environ.get("GITHUB_TOKEN", ""))) or TOKEN_FILE.exists()
 
 
-def load_token(save: bool) -> tuple[str, str]:
-    """Resolve the token: $GITHUB_TOKEN > config file > interactive prompt.
-
-    Returns (token, source). The source is reported so a silently auto-picked
-    stale token can't masquerade as "your input". The token never lands in the
-    project dir; --save-token stows it in the XDG config dir with 0600 perms.
-    """
+def saved_token() -> tuple[str, str]:
     token = clean_token(os.environ.get("GITHUB_TOKEN", ""))
     if token:
         return token, "env"
@@ -75,6 +69,19 @@ def load_token(save: bool) -> tuple[str, str]:
         token = clean_token(TOKEN_FILE.read_text(encoding="utf-8"))
         if token:
             return token, "file"
+    return "", ""
+
+
+def load_token(save: bool) -> tuple[str, str]:
+    """Resolve the token: $GITHUB_TOKEN > config file > interactive prompt.
+
+    Returns (token, source). The source is reported so a silently auto-picked
+    stale token can't masquerade as "your input". The token never lands in the
+    project dir; --save-token stows it in the XDG config dir with 0600 perms.
+    """
+    token, source = saved_token()
+    if token:
+        return token, source
     raw = getpass.getpass("GitHub fine-grained PAT (Administration: read): ")
     token = clean_token(raw)
     if not token:
@@ -116,6 +123,13 @@ def token_fingerprint(tok: str) -> str:
 
 
 # ───────────────────────────── github api ─────────────────────────────────
+class ApiError(Exception):
+    def __init__(self, status: int, data: object):
+        super().__init__(f"HTTP {status}: {data}")
+        self.status = status
+        self.data = data
+
+
 class GitHub:
     def __init__(self, token: str | None = None):
         # no token → the public, unauthenticated API (light mode; 60 req/h limit)
@@ -182,7 +196,7 @@ class GitHub:
                 {"affiliation": "owner", "per_page": 100, "page": page, "sort": "full_name"},
             )
             if status != 200 or not isinstance(data, list):
-                sys.exit(f"Could not list repos (HTTP {status}): {data}")
+                raise ApiError(status, data)
             if not data:
                 break
             repos.extend(data)
@@ -202,7 +216,7 @@ class GitHub:
             sys.exit(f"Could not load user '{username}' (HTTP {status}): {data}")
         return data["login"], data.get("avatar_url", ""), data.get("followers", 0)
 
-    def public_repos(self, username: str) -> list[dict]:
+    def public_repos(self, username: str, strict: bool = False) -> list[dict]:
         """A user's PUBLIC repos (no token), newest-pushed first, paginated. Stops
         gracefully on the unauthenticated 60 req/h rate limit."""
         repos: list[dict] = []
@@ -212,10 +226,13 @@ class GitHub:
                 f"/users/{username}/repos",
                 {"type": "owner", "per_page": 100, "page": page, "sort": "pushed"},
             )
-            if status == 403:
-                print("  ! rate limit hit while listing repos — showing what loaded.")
+            if status != 200 or not isinstance(data, list):
+                if strict:
+                    raise ApiError(status, data)
+                if status == 403:
+                    print("  ! rate limit hit while listing repos — showing what loaded.")
                 break
-            if status != 200 or not isinstance(data, list) or not data:
+            if not data:
                 break
             repos.extend(data)
             if len(data) < 100:
@@ -399,9 +416,27 @@ def fetch_thumb(gh: GitHub, owner: str, repo: str, refresh: bool) -> str | None:
     return None
 
 
-def collect(gh: GitHub, owner: str, repos: list[dict], workers: int,
-            want_thumbs: bool = True, refresh_thumbs: bool = False) -> tuple[list[dict], list[dict]]:
-    """Fan out traffic fetches (and per-repo preview thumbnails). Returns (collected, skipped)."""
+def traffic_fields(t: dict) -> dict:
+    v, c = t["views"], t["clones"]
+    return {
+        "views": {
+            "count": v.get("count", 0),
+            "uniques": v.get("uniques", 0),
+            "daily": [{"date": day(x["timestamp"]), "count": x["count"], "uniques": x["uniques"]}
+                      for x in v.get("views", [])],
+        },
+        "clones": {
+            "count": c.get("count", 0),
+            "uniques": c.get("uniques", 0),
+            "daily": [{"date": day(x["timestamp"]), "count": x["count"], "uniques": x["uniques"]}
+                      for x in c.get("clones", [])],
+        },
+        "referrers": [{"referrer": x["referrer"], "count": x["count"], "uniques": x["uniques"]}
+                      for x in t["referrers"]],
+    }
+
+
+def fan_out(repos: list[dict], workers: int, build) -> tuple[list[dict], list[dict]]:
     collected: list[dict] = []
     skipped: list[dict] = []
 
@@ -412,43 +447,7 @@ def collect(gh: GitHub, owner: str, repos: list[dict], workers: int,
         if not name:
             return ("skip", {"name": "<unknown>", "reason": "repo missing name field"})
         try:
-            t = gh.traffic(owner, name)
-            oc = r.get("open_issues_count", 0)  # combined issues + PRs (free, from /user/repos)
-            prs = gh.open_pr_count(owner, name) if oc > 0 else 0  # split only when there's something
-            watch = gh.watchers(owner, name)
-            thumb = None
-            if want_thumbs:
-                try:
-                    thumb = fetch_thumb(gh, owner, name, refresh_thumbs)
-                except Exception:
-                    thumb = None  # a thumbnail problem must never drop the repo's traffic
-            v, c = t["views"], t["clones"]
-            return ("ok", {
-                "name": name,
-                "private": r.get("private", False),
-                "fork": r.get("fork", False),
-                "stars": r.get("stargazers_count", 0),
-                "forks": r.get("forks_count", 0),
-                "open_issues_total": oc,
-                "open_prs": prs,
-                "pushed_at": r.get("pushed_at") or "",
-                "watchers": watch,
-                "thumb": thumb,
-                "views": {
-                    "count": v.get("count", 0),
-                    "uniques": v.get("uniques", 0),
-                    "daily": [{"date": day(x["timestamp"]), "count": x["count"], "uniques": x["uniques"]}
-                              for x in v.get("views", [])],
-                },
-                "clones": {
-                    "count": c.get("count", 0),
-                    "uniques": c.get("uniques", 0),
-                    "daily": [{"date": day(x["timestamp"]), "count": x["count"], "uniques": x["uniques"]}
-                              for x in c.get("clones", [])],
-                },
-                "referrers": [{"referrer": x["referrer"], "count": x["count"], "uniques": x["uniques"]}
-                              for x in t["referrers"]],
-            })
+            return ("ok", build(r, name))
         except PermissionError as e:
             return ("skip", {"name": name, "reason": str(e)})
         except Exception as e:  # malformed payload, etc. — don't kill the run
@@ -459,6 +458,49 @@ def collect(gh: GitHub, owner: str, repos: list[dict], workers: int,
             (collected if kind == "ok" else skipped).append(item)
     collected.sort(key=lambda r: r["views"]["count"], reverse=True)
     return collected, skipped
+
+
+def collect(gh: GitHub, owner: str, repos: list[dict], workers: int,
+            want_thumbs: bool = True, refresh_thumbs: bool = False) -> tuple[list[dict], list[dict]]:
+    """Fan out traffic fetches (and per-repo preview thumbnails). Returns (collected, skipped)."""
+    def build(r: dict, name: str) -> dict:
+        t = gh.traffic(owner, name)
+        oc = r.get("open_issues_count", 0)  # combined issues + PRs (free, from /user/repos)
+        prs = gh.open_pr_count(owner, name) if oc > 0 else 0  # split only when there's something
+        watch = gh.watchers(owner, name)
+        thumb = None
+        if want_thumbs:
+            try:
+                thumb = fetch_thumb(gh, owner, name, refresh_thumbs)
+            except Exception:
+                thumb = None  # a thumbnail problem must never drop the repo's traffic
+        return {
+            "name": name,
+            "private": r.get("private", False),
+            "fork": r.get("fork", False),
+            "stars": r.get("stargazers_count", 0),
+            "forks": r.get("forks_count", 0),
+            "open_issues_total": oc,
+            "open_prs": prs,
+            "pushed_at": r.get("pushed_at") or "",
+            "watchers": watch,
+            "thumb": thumb,
+            **traffic_fields(t),
+        }
+
+    return fan_out(repos, workers, build)
+
+
+def collect_traffic(gh: GitHub, owner: str, repos: list[dict], workers: int) -> tuple[list[dict], list[dict]]:
+    def build(r: dict, name: str) -> dict:
+        return {
+            "name": name,
+            "private": r.get("private", False),
+            "stars": r.get("stargazers_count", 0),
+            **traffic_fields(gh.traffic(owner, name)),
+        }
+
+    return fan_out(repos, workers, build)
 
 
 def collect_light(gh: GitHub, owner: str, repos: list[dict],
@@ -642,6 +684,7 @@ html{scrollbar-width:thin; scrollbar-color:var(--s2) var(--bg)}
 .chead-t .cstars .eye{display:inline-block; width:1em; height:1em; fill:currentColor; vertical-align:-2px; margin-left:3px; opacity:.85}
 .pills .pill{margin-left:6px}
 .cbig{display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:14px}
+.cbig.two{grid-template-columns:1fr 1fr}
 .cbig .cl{font-size:9px; letter-spacing:1.5px; text-transform:uppercase; color:var(--mut)}
 .cbig .cnum{font-size:21px; font-weight:800; color:var(--txhi); font-variant-numeric:tabular-nums; line-height:1.15; margin-top:2px; overflow:hidden; text-overflow:ellipsis}
 .crefs{display:flex; flex-direction:column; gap:7px; margin-bottom:12px}
@@ -880,24 +923,26 @@ function repoTotal(r, metric){ let t=0; dailyMap(r,metric).forEach(v=>t+=v); ret
 let chartMode='total';
 const chartSel=new Set();   // repos drawn in the per-repo chart (driven by the dropdown)
 // trend = recent half of the window vs the prior half (honest, no extrapolation)
-function trend(vals){
-  const n=vals.length; if(n<4) return null;
+const TODAY=String(DATA.generated||'').slice(0,10);
+function trend(vals, dates){
+  const v=(dates && TODAY ? vals.filter((_,i)=>dates[i]<TODAY) : vals).slice(-14);
+  const n=v.length; if(n<4) return null;
   const h=Math.floor(n/2);
-  const prev=vals.slice(0,h).reduce((a,b)=>a+b,0), recent=vals.slice(h).reduce((a,b)=>a+b,0);
+  const prev=v.slice(n-2*h,n-h).reduce((a,b)=>a+b,0), recent=v.slice(n-h).reduce((a,b)=>a+b,0);
   if(prev===0 && recent===0) return null;
   const pct = prev===0 ? null : Math.round((recent-prev)/prev*100);   // null = from-zero (no baseline) → rendered as "NA"
-  return {pct, dir: recent>prev?'up':recent<prev?'down':'flat', half:n-h};
+  return {pct, dir: recent>prev?'up':recent<prev?'down':'flat', half:h};
 }
 function trendBadge(t){
   // NA = no computable trend (too little data, or grew from a zero baseline)
   if(!t) return `<span class="trend flat" title="not enough data for a trend">NA</span>`;
   if(t.pct===null) return `<span class="trend flat" title="grew from a zero baseline — no % possible">NA</span>`;
   const arrow = t.dir==='up'?'&#9650;':t.dir==='down'?'&#9660;':'&#8211;';
-  return `<span class="trend ${t.dir}" title="recent half of the window vs the prior half">${arrow} ${t.pct>0?'+':''}${t.pct}%</span>`;
+  return `<span class="trend ${t.dir}" title="last ${t.half} complete days vs the ${t.half} before">${arrow} ${t.pct>0?'+':''}${t.pct}%</span>`;
 }
 // labelled per-metric trend ("v ▲200%" / "c NA") for the per-repo legend
-function metricTrend(label, vals){
-  return `<span class="tl">${label}</span>${trendBadge(trend(vals))}`;
+function metricTrend(label, vals, dates){
+  return `<span class="tl">${label}</span>${trendBadge(trend(vals, dates))}`;
 }
 function renderChart(){
   const svg=$('#chart'), legend=$('#chart-legend');
@@ -909,7 +954,7 @@ function renderChart(){
     const vv=dates.map(d=>vm.get(d)||0), cc=dates.map(d=>cm.get(d)||0);
     lineChart(svg, [{color:GREEN,vals:vv},{color:AMBER,vals:cc}], 960, 220, dates);
     attachHover(svg, $('#tip'), dates, [{name:'views',color:GREEN,vals:vv},{name:'clones',color:AMBER,vals:cc}]);
-    const tv=trend(vv), tc=trend(cc);
+    const tv=trend(vv, dates), tc=trend(cc, dates);
     legend.innerHTML=`<span><span class="sw" style="background:${GREEN}"></span>views${trendBadge(tv)}</span><span><span class="sw" style="background:${AMBER}"></span>clones${trendBadge(tc)}</span><span class="muted">— selected repos · last ${(tv||tc||{}).half||7}d vs prior</span>`;
     $('#cm-total').className='on'; $('#cm-perrepo').className='';
   } else {
@@ -924,7 +969,7 @@ function renderChart(){
     legend.innerHTML = shown.length
       ? shown.map((r,i)=>{
           const vv=dates.map(d=>dailyMap(r,'views').get(d)||0), cv=dates.map(d=>dailyMap(r,'clones').get(d)||0);
-          return `<span><span class="sw" style="background:${PALETTE[i%PALETTE.length]}"></span>${esc(r.name)} <b>${fmt(repoTotal(r,metric))}</b> <span class="tpair">(${metricTrend('v',vv)}<span class="tsep">/</span>${metricTrend('c',cv)})</span></span>`;
+          return `<span><span class="sw" style="background:${PALETTE[i%PALETTE.length]}"></span>${esc(r.name)} <b>${fmt(repoTotal(r,metric))}</b> <span class="tpair">(${metricTrend('v',vv,dates)}<span class="tsep">/</span>${metricTrend('c',cv,dates)})</span></span>`;
         }).join('')
       : `<span class="muted">no repos picked — choose some in the “repos” menu →</span>`;
     $('#cm-total').className=''; $('#cm-perrepo').className='on';
@@ -977,12 +1022,15 @@ function renderInsight(){
   if(ts) segs.push(`↗ top source <b>${esc(ts.referrer)}</b> (${fmt(ts.count)})`);
   const gl=(base,q,txt)=>`<a class="csl" href="https://github.com/${base}?q=${encodeURIComponent(q)}" target="_blank" rel="noopener noreferrer">${txt}</a>`;
   const U=DATA.user;
-  segs.push(`◍ in your repos: ${gl('issues',`is:open is:issue user:${U}`,`<b>${fmt(oi)}</b> issues`)} / ${gl('pulls',`is:open is:pr user:${U}`,`<b>${fmt(op)}</b> PRs`)}`);
-  const ai=DATA.authored_issues, ap=DATA.authored_prs;
-  if(ai!=null || ap!=null)
-    segs.push(`✎ you opened: ${gl('issues',`is:open is:issue author:${U}`,`<b>${ai==null?'?':fmt(ai)}</b> issues`)} / ${gl('pulls',`is:open is:pr author:${U}`,`<b>${ap==null?'?':fmt(ap)}</b> PRs`)}`);
-  else
-    segs.push(`<span class="muted">✎ you opened: search n/a (token lacks search)</span>`);
+  if(sel.some(r=>r.open_issues_total!=null))
+    segs.push(`◍ in your repos: ${gl('issues',`is:open is:issue user:${U}`,`<b>${fmt(oi)}</b> issues`)} / ${gl('pulls',`is:open is:pr user:${U}`,`<b>${fmt(op)}</b> PRs`)}`);
+  if('authored_issues' in DATA){
+    const ai=DATA.authored_issues, ap=DATA.authored_prs;
+    if(ai!=null || ap!=null)
+      segs.push(`✎ you opened: ${gl('issues',`is:open is:issue author:${U}`,`<b>${ai==null?'?':fmt(ai)}</b> issues`)} / ${gl('pulls',`is:open is:pr author:${U}`,`<b>${ap==null?'?':fmt(ap)}</b> PRs`)}`);
+    else
+      segs.push(`<span class="muted">✎ you opened: search n/a (token lacks search)</span>`);
+  }
   // each segment is nowrap → the line only breaks between segments (at the · separators)
   $('#insight').innerHTML=segs.map(s=>`<span class="iseg">${s}</span>`).join(' · ');
 }
@@ -1023,20 +1071,20 @@ function renderCards(){
     card.innerHTML=`
       <input class="sel" type="checkbox" title="include in totals" ${selected.has(r.name)?'checked':''}>
       <div class="chead">
-        ${r.thumb?`<img class="cthumb" loading="lazy" decoding="async" alt="" src="${r.thumb}">`
+        ${r.thumb && /^data:image\/(webp|png|jpe?g);base64,[A-Za-z0-9+\/=]+$/.test(r.thumb)?`<img class="cthumb" loading="lazy" decoding="async" alt="" src="${r.thumb}">`
                  :`<div class="cthumb-np" style="color:${monoTint(r.name)}">${esc(initials(r))}</div>`}
         <div class="chead-t">
           <div class="rtitle"><a class="rlink" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}" target="_blank" rel="noopener noreferrer">${esc(r.name)}</a><span class="pills">${PILL(r)}</span></div>
           <div class="cstars"><span class="star">&#9733;</span> ${fmt(r.stars)} stars${r.watchers!=null?`<span class="cwatch">&#183; ${fmt(r.watchers)}<svg class="eye" aria-hidden="true"><use href="#i-eye"></use></svg></span>`:''}</div>
         </div>
       </div>
-      <div class="cbig">
+      <div class="cbig${r.forks==null?' two':''}">
         <div><div class="cl">views (14d)</div><div class="cnum">${fmt(r.views.count)}</div></div>
-        <div><div class="cl">clones</div><div class="cnum">${fmt(r.clones.count)}</div></div>
-        <div><div class="cl">forks</div><div class="cnum">${fmt(r.forks||0)}</div></div>
+        <div><div class="cl">clones</div><div class="cnum">${fmt(r.clones.count)}</div></div>${r.forks==null?'':`
+        <div><div class="cl">forks</div><div class="cnum">${fmt(r.forks||0)}</div></div>`}
       </div>
-      <div class="crefs">${refBars(r)}</div>
-      <div class="csec"><span style="color:${T.orange}">&#9711;</span> <a class="csl" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}/issues" target="_blank" rel="noopener noreferrer"><b>${fmt(iss)}</b> issues</a> <span class="sep">·</span> <span style="color:${T.cyan}">&#8644;</span> <a class="csl" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}/pulls" target="_blank" rel="noopener noreferrer"><b>${prs}</b> PRs</a>${r.pushed_at?` <span class="sep">·</span> updated <b>${relTime(r.pushed_at)}</b>`:''}</div>`;
+      <div class="crefs">${refBars(r)}</div>${r.open_issues_total==null?'':`
+      <div class="csec"><span style="color:${T.orange}">&#9711;</span> <a class="csl" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}/issues" target="_blank" rel="noopener noreferrer"><b>${fmt(iss)}</b> issues</a> <span class="sep">·</span> <span style="color:${T.cyan}">&#8644;</span> <a class="csl" href="https://github.com/${esc(DATA.user)}/${esc(r.name)}/pulls" target="_blank" rel="noopener noreferrer"><b>${prs}</b> PRs</a>${r.pushed_at?` <span class="sep">·</span> updated <b>${relTime(r.pushed_at)}</b>`:''}</div>`}`;
     card.querySelector('input').addEventListener('click',e=>{
       e.target.checked?selected.add(r.name):selected.delete(r.name);
       card.classList.toggle('off', !e.target.checked);
@@ -1089,13 +1137,16 @@ function init(){
   if(DATA.avatar){ const a=$('#avatar'); a.src=DATA.avatar; a.hidden=false; }
   topRepos(10).forEach(n=>chartSel.add(n));   // per-repo chart starts at the top 10 by views
   const totalStars=DATA.repos.filter(r=>!r.fork).reduce((s,r)=>s+(r.stars||0),0);
-  $('#ustats').innerHTML=`<span style="color:var(--amber)">&#9733;</span> <b>${fmt(totalStars)}</b> stars &nbsp;·&nbsp; <b>${fmt(DATA.followers||0)}</b> followers`;
+  $('#ustats').innerHTML=`<span style="color:var(--amber)">&#9733;</span> <b>${fmt(totalStars)}</b> stars${'followers' in DATA?` &nbsp;·&nbsp; <b>${fmt(DATA.followers||0)}</b> followers`:''}`;
+  if(!DATA.repos.some(r=>'forks' in r)) document.querySelectorAll('#sort-toggle a[data-s="forks"]').forEach(a=>a.remove());
+  if(!DATA.repos.some(r=>'pushed_at' in r)) document.querySelectorAll('#sort-toggle a[data-s="updated"]').forEach(a=>a.remove());
+  if(!DATA.repos.some(r=>'fork' in r)){ $('#nofork').closest('label').remove(); $('#rdd-nofork').remove(); }
   $('#meta').textContent=`generated ${DATA.generated} · ${DATA.repos.length} repos · GitHub serves a rolling ${DATA.window_days}-day window`;
   if(DATA.skipped && DATA.skipped.length){
     $('#skip').innerHTML='<div class="skip">skipped (no access): '+DATA.skipped.map(s=>esc(s.name)).join(', ')+'</div>';
   }
   $('#foot').innerHTML=`gh-traffic · single self-contained file · no token stored here · charts are inline SVG (offline).<br>`+
-    `Trend &#9650;/&#9660; compares the recent half of the shown window against the prior half (e.g. the last 7 days vs the 7 before); it shows “NA” when there's no prior baseline (it grew from zero or there's too little data). `+
+    `Trend &#9650;/&#9660; compares the last 7 complete days with the 7 days before; today is left out because GitHub's numbers for it are still incomplete. It shows “NA” when there's no prior baseline (it grew from zero or there's too little data). `+
     `Views/clones are GitHub's rolling 14-day window; referrers are its 14-day aggregate (no per-day data). `+
     `Unique-visitor/cloner totals are summed per repo and overcount anyone who visited several repos.`;
   applyTheme('gruvbox');  // sets CSS vars + paints palette swatches + renders
@@ -1108,6 +1159,156 @@ init();
 
 
 # ───────────────────────────── main ───────────────────────────────────────
+def pick_repos(repos: list[dict], spec: str) -> list[dict]:
+    if not spec:
+        return repos
+    wanted = {r.strip() for r in spec.split(",") if r.strip()}
+    return [r for r in repos if r.get("name") in wanted]
+
+
+def json_error(code: str, message: str) -> dict:
+    return {"ok": False, "error": code, "message": message}
+
+
+def api_failure(status: int, data: object) -> dict:
+    message = data.get("message", "") if isinstance(data, dict) else str(data)
+    if status == 0:
+        return json_error("network", message)
+    if status == 401:
+        return json_error("unauthorized", "The token is invalid or expired.")
+    if status in (403, 429) and "rate limit" in message.lower():
+        return json_error("rate-limited", message)
+    return json_error("api-error", f"HTTP {status}: {message}")
+
+
+def traffic_json(args: argparse.Namespace) -> dict:
+    token, _ = saved_token()
+    if not token:
+        return json_error("no-token", f"No token found. Set $GITHUB_TOKEN or save one to {TOKEN_FILE}.")
+    gh = GitHub(token)
+    status, me = gh.get("/user")
+    if status != 200 or not isinstance(me, dict) or "login" not in me:
+        return api_failure(status, me)
+    try:
+        repos = gh.owned_repos()
+    except ApiError as e:
+        return api_failure(e.status, e.data)
+    listed = len(repos)
+    repos = pick_repos([r for r in repos if not r.get("fork")], args.repos)
+    requests = 1 + listed // 100 + 1 + 3 * len(repos)
+    if args.confirm_above and requests >= args.confirm_above:
+        return {
+            "ok": False,
+            "error": "confirm",
+            "message": f"Loading traffic for {len(repos)} repositories uses about {requests} API requests.",
+            "repoCount": len(repos),
+            "requests": requests,
+        }
+    collected, skipped = collect_traffic(gh, me["login"], repos, args.workers)
+    return {
+        "ok": True,
+        "user": me["login"],
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "window_days": 14,
+        "repos": collected,
+        "skipped": skipped,
+    }
+
+
+def light_json(username: str) -> dict:
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})", username or ""):
+        return json_error("invalid-user", "Enter a GitHub username.")
+    gh = GitHub()
+    status, me = gh.get(f"/users/{username}")
+    if status == 404:
+        return json_error("not-found", f"There is no GitHub user named {username}.")
+    if status != 200 or not isinstance(me, dict) or "login" not in me:
+        return api_failure(status, me)
+    try:
+        repos = gh.public_repos(me["login"], strict=True)
+    except ApiError as e:
+        return api_failure(e.status, e.data)
+    return {
+        "ok": True,
+        "light": True,
+        "user": me["login"],
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "followers": me.get("followers", 0),
+        "repos": [{
+            "name": r.get("name", ""),
+            "stars": r.get("stargazers_count", 0),
+            "language": r.get("language") or "",
+            "pushed_at": r.get("pushed_at") or "",
+        } for r in repos if r.get("name") and not r.get("fork")],
+        "skipped": [],
+    }
+
+
+def clean_series(value: object) -> dict:
+    import re
+    s = value if isinstance(value, dict) else {}
+    daily = s.get("daily") if isinstance(s.get("daily"), list) else []
+    return {
+        "count": int(s.get("count") or 0),
+        "uniques": int(s.get("uniques") or 0),
+        "daily": [{"date": str(x["date"]), "count": int(x.get("count") or 0), "uniques": int(x.get("uniques") or 0)}
+                  for x in daily if isinstance(x, dict) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(x.get("date", "")))],
+    }
+
+
+def panel_report(path: Path, include_private: bool = False) -> dict:
+    import re
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("ok") is not True or not isinstance(payload.get("repos"), list):
+        raise ValueError("not a successful --json snapshot")
+    generated = datetime.strptime(str(payload["generated"]), "%Y-%m-%dT%H:%M:%SZ")
+    light = payload.get("light") is True
+    repos = [r for r in payload["repos"] if isinstance(r, dict) and r.get("name")]
+    data = {
+        "user": str(payload["user"]),
+        "light": light,
+        "generated": generated.strftime("%Y-%m-%d %H:%M UTC"),
+        "window_days": int(payload.get("window_days") or 14),
+    }
+    if light:
+        data["followers"] = int(payload.get("followers") or 0)
+        data["skipped"] = []
+        data["repos"] = [{
+            "name": str(r["name"]),
+            "private": False,
+            "stars": int(r.get("stars") or 0),
+            "pushed_at": str(r.get("pushed_at") or "") if re.fullmatch(r"\d{4}-\d{2}-\d{2}T[\d:]+Z", str(r.get("pushed_at") or "")) else "",
+            "views": {"count": 0, "uniques": 0, "daily": []},
+            "clones": {"count": 0, "uniques": 0, "daily": []},
+            "referrers": [],
+        } for r in repos]
+        return data
+    if not include_private:
+        repos = [r for r in repos if r.get("private") is not True]
+    data["repos"] = [{
+        "name": str(r["name"]),
+        "private": r.get("private") is True,
+        "stars": int(r.get("stars") or 0),
+        "views": clean_series(r.get("views")),
+        "clones": clean_series(r.get("clones")),
+        "referrers": [{"referrer": str(x.get("referrer", "")), "count": int(x.get("count") or 0), "uniques": int(x.get("uniques") or 0)}
+                      for x in (r.get("referrers") if isinstance(r.get("referrers"), list) else []) if isinstance(x, dict)],
+    } for r in repos]
+    data["skipped"] = [{"name": str(x.get("name", "")), "reason": str(x.get("reason", ""))}
+                       for x in payload.get("skipped", []) if isinstance(x, dict)] if include_private else []
+    return data
+
+
+def run_json(args: argparse.Namespace) -> None:
+    try:
+        payload = light_json(args.public) if args.public is not None else traffic_json(args)
+    except Exception as e:
+        payload = json_error("internal", f"{type(e).__name__}: {e}")
+    print(json.dumps(payload, ensure_ascii=False))
+    sys.exit(0 if payload["ok"] else 1)
+
+
 def banner() -> str:
     """Small ASCII title shown on every run."""
     art = ("  ┌─┐┬ ┬   ┌┬┐┬─┐┌─┐┌─┐┌─┐┬┌─┐\n"
@@ -1120,7 +1321,6 @@ def banner() -> str:
 
 
 def main() -> None:
-    print(banner())
     ap = argparse.ArgumentParser(description="Local GitHub traffic dashboard (cliamp look).")
     ap.add_argument("--out", default=str(DATA_DIR / "report.html"),
                     help="output HTML path (default: ~/gh-traffic/report.html)")
@@ -1132,7 +1332,35 @@ def main() -> None:
     ap.add_argument("--refresh-thumbs", action="store_true", help="re-fetch preview images, ignoring the ETag cache")
     ap.add_argument("--public", nargs="?", const="", default=None, metavar="USER",
                     help="light mode: public data for USER (any username), no token, no traffic")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--json", action="store_true",
+                      help="print views, clones and referrers of your own non-fork repos as JSON to stdout "
+                           "(token from $GITHUB_TOKEN or the saved file, never prompts); "
+                           "with --public USER, print that user's public repos instead")
+    mode.add_argument("--from-json", metavar="FILE",
+                      help="render the HTML report from a file written by --json (no token, no network)")
+    ap.add_argument("--include-private", action="store_true",
+                    help="with --from-json: keep private repositories in the report (left out by default)")
+    ap.add_argument("--confirm-above", type=int, default=0, metavar="N",
+                    help="with --json: stop before loading traffic when it would take N or more API requests")
     args = ap.parse_args()
+
+    if args.json:
+        run_json(args)
+    print(banner())
+
+    if args.from_json:
+        try:
+            data = panel_report(Path(args.from_json).expanduser(), args.include_private)
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            sys.exit(f"Could not read {args.from_json}: {e}")
+        out = Path(args.out).expanduser().resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        render(data, out)
+        print(f"Report: {out}")
+        if not args.no_open:
+            webbrowser.open(out.as_uri())
+        return
 
     want_thumbs = not args.no_thumbs
     if want_thumbs and not MAGICK:
@@ -1159,10 +1387,7 @@ def main() -> None:
         print("  note: the unauthenticated GitHub API allows ~60 requests/hour. Many repos + "
               "thumbnails can hit that limit; thumbnails are cached, so just re-run to fill gaps.")
         user, avatar_url, followers = gh.public_user(username)
-        repos = gh.public_repos(username)
-        if args.repos:
-            wanted = {r.strip() for r in args.repos.split(",") if r.strip()}
-            repos = [r for r in repos if r.get("name") in wanted]
+        repos = pick_repos(gh.public_repos(username), args.repos)
         avatar = fetch_avatar(avatar_url) if not args.no_thumbs else None
         print(f"Building light report for {len(repos)} public repos…")
         collected = collect_light(gh, username, repos, want_thumbs, args.refresh_thumbs)
@@ -1176,10 +1401,10 @@ def main() -> None:
         gh = GitHub(token)
         user, avatar_url, followers = gh.whoami(source)
         print(f"User: {user}")
-        repos = gh.owned_repos()
-        if args.repos:
-            wanted = {r.strip() for r in args.repos.split(",") if r.strip()}
-            repos = [r for r in repos if r.get("name") in wanted]
+        try:
+            repos = pick_repos(gh.owned_repos(), args.repos)
+        except ApiError as e:
+            sys.exit(f"Could not list repos (HTTP {e.status}): {e.data}")
         avatar = fetch_avatar(avatar_url) if not args.no_thumbs else None  # avatar needs no ImageMagick
         print(f"Fetching traffic for {len(repos)} repos" + (" + preview thumbnails (first run downloads them)…" if want_thumbs else "…"))
         collected, skipped = collect(gh, user, repos, args.workers, want_thumbs, args.refresh_thumbs)
