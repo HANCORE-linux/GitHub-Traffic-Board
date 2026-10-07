@@ -66,6 +66,11 @@ On the first run (with no token configured) it asks:
 This repo is also an Omarchy plugin: a bar icon with a panel for the last 14 days
 of views, clones and referrers of your own repositories (no forks).
 
+<p align="center">
+  <img src="docs/plugin-in-context.png" alt="GitHub Traffic panel opened from the Omarchy bar" width="900"><br>
+  <em>Fictional demo data.</em>
+</p>
+
 ```bash
 omarchy plugin add https://github.com/HANCORE-linux/GitHub-Traffic-Board.git --enable
 ```
