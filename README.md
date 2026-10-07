@@ -75,6 +75,9 @@ of views, clones and referrers of your own repositories (no forks).
 omarchy plugin add https://github.com/HANCORE-linux/GitHub-Traffic-Board.git --enable
 ```
 
+Remove it with `omarchy plugin remove io.github.hancore-linux.traffic-board`. Its data
+stays in `~/gh-traffic/` and `~/.config/gh-traffic/`; delete those folders to remove it too.
+
 - **Manual only:** data loads when you click refresh. About 3 API requests per
   repository; from 200 requests on, the panel asks first.
 - **Two modes** (gear icon): *Traffic* for your own repos (token needed), *Light*
