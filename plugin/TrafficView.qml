@@ -285,7 +285,7 @@ Rectangle {
         id: heroIcon
         textFormat: Text.PlainText
         anchors.verticalCenter: parent.verticalCenter
-        text: root.mode === "setup" ? "\uf43d" : root.viewMode === "light" ? "\uf41e" : "\uf441"
+        text: root.mode === "setup" ? "\uf43d" : root.viewMode === "light" ? "\uf415" : "\uf441"
         color: root.foreground
         font.family: root.fontFamily
         font.pixelSize: 24
@@ -351,6 +351,24 @@ Rectangle {
             font.family: root.fontFamily
             font.pixelSize: 12
             font.bold: true
+          }
+        }
+
+        Row {
+          spacing: 4
+
+          Chip {
+            square: true
+            glyph: "\uf441"
+            selected: root.viewMode === "traffic"
+            onClicked: root.viewModeRequested("traffic")
+          }
+
+          Chip {
+            square: true
+            glyph: "\uf415"
+            selected: root.viewMode === "light"
+            onClicked: root.viewModeRequested("light")
           }
         }
 
