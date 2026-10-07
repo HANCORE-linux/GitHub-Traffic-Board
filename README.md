@@ -61,39 +61,45 @@ On the first run (with no token configured) it asks:
 
 ---
 
+## Use it as an Omarchy plugin
+
+This repo is also an Omarchy plugin: a bar icon with a panel for the last 14 days
+of views, clones and referrers of your own repositories (no forks).
+
+```bash
+omarchy plugin add https://github.com/HANCORE-linux/GitHub-Traffic-Board.git --enable
+```
+
+- **Manual only:** data loads when you click refresh. About 3 API requests per
+  repository; from 200 requests on, the panel asks first.
+- **Two modes** (gear icon): *Traffic* for your own repos (token needed), *Light*
+  for the public repos of any user (no token, about 2 requests).
+- **List:** top 16, then *Show 36 more*, then *Show all*.
+- **Export:** HTML report (no extra requests) or PNG, saved in `~/gh-traffic/exports/`.
+- Uses `python3`, which Omarchy already has, and the same token as the script.
+
+---
+
 ## Security — read this first
 
-The GitHub Traffic API is **not** a harmless read-only scope: it requires
-push-level trust on the repo. So mint the **smallest possible** token:
+Traffic data needs a token with push-level trust, so keep it as small as possible:
 
-1. GitHub → Settings → Developer settings → **Fine-grained personal access tokens**.
-2. **Repository access:** only the repos you want to see (or *All repositories*).
-3. **Permissions:** `Administration → Read-only` (covers views, clones,
-   referrers). *Optionally* `Pull requests → Read` so open-PR counts resolve
-   (else shown as "?").
-4. Set an **expiration**.
-
-<p align="center">
-  <img src="docs/token-fine-grained.png" alt="Settings → Developer Settings → Fine-grained tokens" width="320"><br>
-  <em>Settings → Developer Settings → Personal access tokens → <strong>Fine-grained tokens</strong></em>
-</p>
+1. Open GitHub's [fine-grained token page](https://github.com/settings/personal-access-tokens/new).
+2. Name it, for example `gh-traffic`, and pick an expiration.
+3. **Repository access:** All repositories, or only the ones you want to see.
+4. **Repository permissions:** Administration → Read-only. Nothing else is needed.
+5. Generate the token, copy it and paste it into the plugin panel, or save it
+   with `python3 gh_traffic.py --save-token`.
 
 <p align="center">
-  <img src="docs/token-permissions.png" alt="Repository permissions → Administration → Read-only" width="660"><br>
-  <em>Repository permissions → <strong>Administration → Read-only</strong> — the only permission needed</em>
+  <img src="docs/token-permissions.png" alt="Repository permissions → Administration → Read-only" width="660">
 </p>
 
-*(A **classic** token would need the broad `repo` scope — full read/write to
-**all** your private repos. Avoid it. Light mode needs no token at all.)*
-
-How the token is handled:
-
-- It lives **only in this process**, is sent **only** to `api.github.com`, and is
-  **never written into `report.html`** *(verify: `grep -iE 'ghp_|github_pat_|bearer' report.html`)*.
-- The report has **no external resources** — inline SVG, base64 images, no CDN or
-  third-party JS — so it opens **fully offline**.
-- **Prompted each run** by default (nothing stored). `--save-token` keeps it `0600`
-  in `~/.config/gh-traffic/token` — outside the project folder, and gitignored.
+- **Plugin:** paste the token in the panel. It is saved in `~/.config/gh-traffic/token`
+  (`0600`) and removed in the options.
+- **Script:** asks for the token on each run, or saves it to the same file with `--save-token`.
+- The token goes only to `api.github.com`, never into a report or export.
+- Avoid classic tokens, they need full `repo` access. Light mode needs no token.
 
 ---
 
@@ -130,6 +136,10 @@ How the token is handled:
 | `--workers N` | parallel fetch workers (default: 8) |
 | `--no-thumbs` | skip preview images (faster; all placeholders) |
 | `--refresh-thumbs` | re-fetch preview images, ignoring the ETag cache |
+| `--json` | print views, clones and referrers of your own non-fork repos as JSON (token from `$GITHUB_TOKEN` or the saved file, never prompts) |
+| `--from-json FILE` | render the HTML report from a `--json` file (no token, no network) |
+| `--json --public USER` | print the public repositories and stars of `USER` as JSON (light, no token) |
+| `--confirm-above N` | with `--json`: stop before loading traffic when it would take `N` or more API requests |
 
 </details>
 
