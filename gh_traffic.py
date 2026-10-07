@@ -20,12 +20,16 @@ from __future__ import annotations
 
 import argparse
 import base64
+import collections
 import getpass
+import http.client
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,6 +39,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 API = "https://api.github.com"
+REQUESTS_PER_MINUTE = 800
+RETRIES = 2
+LONGEST_PAUSE = 120
 DATA_DIR = Path.home() / "gh-traffic"               # report + cache live in one tidy home folder (not the cloned repo)
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "gh-traffic"
 CACHE_DIR = DATA_DIR / "cache"
@@ -130,6 +137,64 @@ class ApiError(Exception):
         self.data = data
 
 
+class Pacer:
+    def __init__(self, per_minute: int):
+        self.per_minute = per_minute
+        self.lock = threading.Lock()
+        self.starts: collections.deque[float] = collections.deque()
+        self.paused_until = 0.0
+        self.strikes = 0
+        self.stopped: tuple | None = None
+
+    def wait(self) -> tuple | None:
+        while True:
+            with self.lock:
+                if self.stopped is not None:
+                    return self.stopped
+                now = time.monotonic()
+                while self.starts and self.starts[0] <= now - 60:
+                    self.starts.popleft()
+                delay = self.paused_until - now
+                if delay <= 0 and len(self.starts) < self.per_minute:
+                    self.starts.append(now)
+                    return None
+                if delay <= 0:
+                    delay = self.starts[0] + 60 - now
+            time.sleep(delay)
+
+    def limited(self, retry_after: float | None) -> bool:
+        with self.lock:
+            now = time.monotonic()
+            if now < self.paused_until:
+                return True
+            self.strikes += 1
+            wait = retry_after if retry_after is not None else 60.0 * 2 ** (self.strikes - 1)
+            if wait > LONGEST_PAUSE:
+                return False
+            self.paused_until = now + wait
+            return True
+
+    def stop(self, response: tuple) -> None:
+        with self.lock:
+            if self.stopped is None:
+                self.stopped = response
+
+
+def limit_kind(status: int, headers, body: bytes) -> str | None:
+    if status not in (403, 429):
+        return None
+    if headers.get("X-RateLimit-Remaining") == "0":
+        return "primary"
+    if headers.get("Retry-After") or b"secondary rate limit" in body.lower():
+        return "secondary"
+    return None
+
+
+def retry_after(headers) -> float | None:
+    after = headers.get("Retry-After") or ""
+    return float(after) if after.isdigit() else None
+
+
 class GitHub:
     def __init__(self, token: str | None = None):
         # no token → the public, unauthenticated API (light mode; 60 req/h limit)
@@ -140,25 +205,51 @@ class GitHub:
         }
         if token:
             self._headers["Authorization"] = f"Bearer {token}"
+        self._pacer = Pacer(REQUESTS_PER_MINUTE)
+
+    def _send(self, req: urllib.request.Request) -> tuple[int, object, bytes | str]:
+        for attempt in range(RETRIES + 1):
+            stopped = self._pacer.wait()
+            if stopped is not None:
+                return stopped
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    return resp.status, resp.headers, resp.read()
+            except urllib.error.HTTPError as e:
+                try:
+                    body = e.read()
+                except (OSError, http.client.HTTPException):
+                    body = b""
+                response = (e.code, e.headers, body)
+                kind = limit_kind(e.code, e.headers, body)
+                if kind == "primary" or (kind == "secondary" and not self._pacer.limited(retry_after(e.headers))):
+                    self._pacer.stop(response)
+                    return response
+                if attempt == RETRIES or (kind is None and e.code not in (500, 502, 503, 504)):
+                    return response
+                if kind is None:
+                    time.sleep(2 ** attempt)
+            except (OSError, http.client.HTTPException) as e:
+                if attempt == RETRIES:
+                    return 0, None, str(getattr(e, "reason", e))
+                time.sleep(2 ** attempt)
 
     def get(self, path: str, params: dict | None = None) -> tuple[int, object]:
         """Return (status, parsed_json). Network errors surface as the status."""
         url = API + path
         if params:
             url += "?" + urllib.parse.urlencode(params)
-        req = urllib.request.Request(url, headers=self._headers)
+        status, _, body = self._send(urllib.request.Request(url, headers=self._headers))
+        if status == 0:
+            return 0, {"message": f"network error: {body}"}
+        if status < 300:
+            return status, json.loads(body.decode("utf-8"))
+        text = body.decode("utf-8", "replace")
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return resp.status, json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", "replace")
-            try:
-                payload = json.loads(body)
-            except ValueError:
-                payload = {"message": body[:200]}
-            return e.code, payload
-        except urllib.error.URLError as e:
-            return 0, {"message": f"network error: {e.reason}"}
+            payload = json.loads(text)
+        except ValueError:
+            payload = {"message": text[:200]}
+        return status, payload
 
     def whoami(self, source: str = "prompt") -> tuple[str, str, int]:
         status, data = self.get("/user")
@@ -276,15 +367,12 @@ class GitHub:
         req = urllib.request.Request(API + path, headers={**self._headers, "Accept": "application/vnd.github.raw"})
         if etag:
             req.add_header("If-None-Match", etag)
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return resp.status, resp.read(), resp.headers.get("ETag")
-        except urllib.error.HTTPError as e:
-            if e.code == 304:
-                return 304, None, etag
-            return e.code, None, None
-        except urllib.error.URLError:
-            return 0, None, None
+        status, headers, body = self._send(req)
+        if status == 304:
+            return 304, None, etag
+        if 200 <= status < 300:
+            return status, body, headers.get("ETag")
+        return status, None, None
 
     def watchers(self, owner: str, repo: str):
         """Real watcher count (subscribers_count). Only the single-repo GET returns
@@ -1143,7 +1231,8 @@ function init(){
   if(!DATA.repos.some(r=>'fork' in r)){ $('#nofork').closest('label').remove(); $('#rdd-nofork').remove(); }
   $('#meta').textContent=`generated ${DATA.generated} · ${DATA.repos.length} repos · GitHub serves a rolling ${DATA.window_days}-day window`;
   if(DATA.skipped && DATA.skipped.length){
-    $('#skip').innerHTML='<div class="skip">skipped (no access): '+DATA.skipped.map(s=>esc(s.name)).join(', ')+'</div>';
+    const why=r=>{r=String(r||'').toLowerCase();return r.includes('rate limit')?'rate limit':r.includes('network error')||r.includes('timed out')?'network':r.includes('http 404')?'not found':r.includes('http 401')||r.includes('http 403')?'no access':'error';};
+    $('#skip').innerHTML='<div class="skip">skipped: '+DATA.skipped.map(s=>esc(s.name)+' ('+why(s.reason)+')').join(', ')+'</div>';
   }
   $('#foot').innerHTML=`gh-traffic · single self-contained file · no token stored here · charts are inline SVG (offline).<br>`+
     `Trend &#9650;/&#9660; compares the last 7 complete days with the 7 days before; today is left out because GitHub's numbers for it are still incomplete. It shows “NA” when there's no prior baseline (it grew from zero or there's too little data). `+
@@ -1409,7 +1498,7 @@ def main() -> None:
         print(f"Fetching traffic for {len(repos)} repos" + (" + preview thumbnails (first run downloads them)…" if want_thumbs else "…"))
         collected, skipped = collect(gh, user, repos, args.workers, want_thumbs, args.refresh_thumbs)
         if skipped:
-            print(f"  skipped {len(skipped)} (no access): " + ", ".join(s["name"] for s in skipped))
+            print(f"  skipped {len(skipped)}: " + ", ".join(f"{s['name']} ({s['reason']})" for s in skipped))
         authored_issues, authored_prs = gh.authored_counts(user)
 
     data = {
