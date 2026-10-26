@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -604,12 +605,12 @@ Panel {
           viewMode: root.viewMode
           lightUser: root.lightUser
           lightUsers: root.lightUsers
-          foreground: Color.popups.text
-          background: Color.popups.background
-          accent: Color.accent
-          urgent: Color.urgent
-          tooltipBackground: Color.tooltip.background
-          tooltipBorder: Color.tooltip.border
+          foreground: Commons.Color.popups.text
+          background: Commons.Color.popups.background
+          accent: Commons.Color.accent
+          urgent: Commons.Color.urgent
+          tooltipBackground: Commons.Color.tooltip.background
+          tooltipBorder: Commons.Color.tooltip.border
           hasToken: root.hasToken
           confirmation: root.confirmation
           barDisplay: root.barDisplay

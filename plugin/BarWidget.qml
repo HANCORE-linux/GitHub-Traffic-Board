@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 BarWidget {
@@ -62,7 +63,7 @@ BarWidget {
     text: panelLoader.item ? panelLoader.item.barText : ""
     dimmed: panelLoader.item ? panelLoader.item.busy : false
     active: panelLoader.item ? (panelLoader.item.barAlert || panelLoader.item.spike) : false
-    activeColor: panelLoader.item && panelLoader.item.spike && !panelLoader.item.barAlert ? Color.accent : (root.bar ? root.bar.urgent : Color.urgent)
+    activeColor: panelLoader.item && panelLoader.item.spike && !panelLoader.item.barAlert ? Commons.Color.accent : (root.bar ? root.bar.urgent : Commons.Color.urgent)
     tooltipText: panelLoader.item ? panelLoader.item.barTooltip : ""
 
     onPressed: function(b) {
